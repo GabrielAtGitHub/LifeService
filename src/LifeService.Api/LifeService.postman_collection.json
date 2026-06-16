@@ -1,0 +1,139 @@
+{
+  "info": {
+    "name": "LifeService API",
+    "description": "Postman equivalent of src/LifeService.Api/LifeService.Api.http. Run the requests top-to-bottom (or via the Collection Runner / Newman): request 2 captures the boardId used by the rest.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "host", "value": "http://localhost:5062" },
+    { "key": "boardId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Health check",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test('200 OK', () => pm.response.to.have.status(200));"
+        ] } }
+      ],
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{host}}/health", "host": ["{{host}}"], "path": ["health"] }
+      }
+    },
+    {
+      "name": "2. Upload board (blinker)",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test('201 Created', () => pm.response.to.have.status(201));",
+          "pm.collectionVariables.set('boardId', pm.response.json().boardId);"
+        ] } }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"cells\": [ { \"x\": 1, \"y\": 0 }, { \"x\": 1, \"y\": 1 }, { \"x\": 1, \"y\": 2 } ] }",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{host}}/api/life/boards", "host": ["{{host}}"], "path": ["api","life","boards"] }
+      }
+    },
+    {
+      "name": "3. Advance one generation",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test('200 OK', () => pm.response.to.have.status(200));"
+        ] } }
+      ],
+      "request": {
+        "method": "POST",
+        "url": { "raw": "{{host}}/api/life/boards/{{boardId}}/next", "host": ["{{host}}"],
+          "path": ["api","life","boards","{{boardId}}","next"] }
+      }
+    },
+    {
+      "name": "4. Advance next four generations",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test('200 OK', () => pm.response.to.have.status(200));"
+        ] } }
+      ],
+      "request": {
+        "method": "POST",
+        "url": { "raw": "{{host}}/api/life/boards/{{boardId}}/next-sequence?n=4", "host": ["{{host}}"],
+          "path": ["api","life","boards","{{boardId}}","next-sequence"],
+          "query": [ { "key": "n", "value": "4" } ] }
+      }
+    },
+    {
+      "name": "5. States in range [0,2]",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test('200 OK', () => pm.response.to.have.status(200));"
+        ] } }
+      ],
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{host}}/api/life/boards/{{boardId}}/states?from=0&to=2", "host": ["{{host}}"],
+          "path": ["api","life","boards","{{boardId}}","states"],
+          "query": [ { "key": "from", "value": "0" }, { "key": "to", "value": "2" } ] }
+      }
+    },
+    {
+      "name": "6. Compute final (steady state)",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test('200 OK', () => pm.response.to.have.status(200));",
+          "pm.test('oscillation period 2', () => pm.expect(pm.response.json().oscillationPeriodLength).to.eql(2));"
+        ] } }
+      ],
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{host}}/api/life/boards/{{boardId}}/final", "host": ["{{host}}"],
+          "path": ["api","life","boards","{{boardId}}","final"] }
+      }
+    },
+    {
+      "name": "7. Inspect quarantine",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+        ] } }
+      ],
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{host}}/api/life/boards/{{boardId}}/quarantine", "host": ["{{host}}"],
+          "path": ["api","life","boards","{{boardId}}","quarantine"] }
+      }
+    },
+    {
+      "name": "8. Clear quarantine",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+        ] } }
+      ],
+      "request": {
+        "method": "DELETE",
+        "url": { "raw": "{{host}}/api/life/boards/{{boardId}}/quarantine", "host": ["{{host}}"],
+          "path": ["api","life","boards","{{boardId}}","quarantine"] }
+      }
+    },
+    {
+      "name": "9. Unknown board -> 404",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+          "pm.test('BoardNotFound', () => pm.expect(pm.response.json().code).to.eql('BoardNotFound'));"
+        ] } }
+      ],
+      "request": {
+        "method": "POST",
+        "url": { "raw": "{{host}}/api/life/boards/00000000-0000-0000-0000-000000000000/next", "host": ["{{host}}"],
+          "path": ["api","life","boards","00000000-0000-0000-0000-000000000000","next"] }
+      }
+    }
+  ]
+}
