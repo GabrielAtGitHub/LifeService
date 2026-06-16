@@ -67,7 +67,16 @@ curl http://localhost:5062/health      # -> Healthy
 The walkthrough below uses `curl` against the `http` profile and a vertical **blinker**
 (an oscillator with period 2). Examples use a POSIX shell (bash / Git Bash); for the equivalent in
 an editor, open [`src/LifeService.Api/LifeService.Api.http`](../src/LifeService.Api/LifeService.Api.http)
-with the VS / VS Code REST Client.
+with the VS / VS Code REST Client. The same flow is also available as a **Postman collection**,
+[`src/LifeService.Api/LifeService.postman_collection.json`](../src/LifeService.Api/LifeService.postman_collection.json)
+— import it into Postman, or run it headless with Newman:
+
+```bash
+dotnet run --project src/LifeService.Api                 # serve on http://localhost:5062
+newman run src/LifeService.Api/LifeService.postman_collection.json
+```
+
+The upload request captures the new `boardId` into a collection variable that the later requests reuse.
 
 > PowerShell users: `curl` is an alias for `Invoke-WebRequest` and quotes JSON differently — prefer
 > `curl.exe` with single-quoted bodies, or use the `.http` file.
