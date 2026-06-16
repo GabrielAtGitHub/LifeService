@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using LifeService.Domain;
 using LifeService.Domain.Abstractions;
 using LifeService.Domain.Configuration;
@@ -40,7 +41,7 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
     public async Task<LifeState> ComputeNextStateAsync(LifeState current, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var next = await ComputeNextAsync(current, ct);
+        var next = await ComputeNextAsync(current, ct).ConfigureAwait(false);
         return next;
     }
 
@@ -57,7 +58,7 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
         for (var i = 0; i < n; i++)
         {
             ct.ThrowIfCancellationRequested();
-            cursor = await ComputeNextAsync(cursor, ct);
+            cursor = await ComputeNextAsync(cursor, ct).ConfigureAwait(false);
             results.Add(cursor);
         }
 
@@ -76,7 +77,7 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
         for (var i = 0; i < maxStates; i++)
         {
             ct.ThrowIfCancellationRequested();
-            current = await ComputeNextAsync(current, ct);
+            current = await ComputeNextAsync(current, ct).ConfigureAwait(false);
             var result = detector.Observe(current);
             if (result.IsSteady)
             {
@@ -114,7 +115,7 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
             throw LifeException.ActiveCellLimitExceeded(potential.Count, _limits.MaxActiveCells);
         }
 
-        var alive = await EvaluatePotentialCellsAsync(potential, active, ct);
+        var alive = await EvaluatePotentialCellsAsync(potential, active, ct).ConfigureAwait(false);
 
         _metrics.StatesComputed.Add(1);
         // active_cells is an UpDownCounter reflecting the delta to the latest computed state.
@@ -144,10 +145,10 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
 
     /// <summary>
     /// Worker + reduce phase: split the potential set across up to
-    /// <c>min(ProcessorCount × ThreadPoolFactor, ceil(count / WorkerMinCellsPerTask))</c> workers and
-    /// evaluate them in parallel. <see cref="LifeComputeOptions.WorkerMinCellsPerTask"/> bounds the
-    /// worker count so small boards don't over-parallelise; even division can make the actual chunks
-    /// slightly smaller than that target.
+    /// <c>min(ProcessorCount × ThreadPoolFactor, count / WorkerMinCellsPerTask)</c> workers and
+    /// evaluate them in parallel. Deriving the worker count from a floor division by
+    /// <see cref="LifeComputeOptions.WorkerMinCellsPerTask"/> guarantees every chunk holds at least
+    /// that many cells, so small boards don't over-parallelise.
     /// </summary>
     private async Task<List<LifeCell>> EvaluatePotentialCellsAsync(
         HashSet<LifeCell> potential, HashSet<LifeCell> active, CancellationToken ct)
@@ -164,7 +165,11 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
         }
 
         var desiredWorkers = Math.Min(maxWorkers, cells.Count / minPerTask);
-        var chunkSize = Math.Max(minPerTask, (cells.Count + desiredWorkers - 1) / desiredWorkers);
+
+        // Because desiredWorkers <= cells.Count / minPerTask (floor), ceil(count / desiredWorkers)
+        // is necessarily >= minPerTask, so no explicit lower clamp on the chunk size is needed.
+        var chunkSize = (cells.Count + desiredWorkers - 1) / desiredWorkers;
+        Debug.Assert(chunkSize >= minPerTask, "chunk size must not fall below WorkerMinCellsPerTask");
 
         var tasks = new List<Task<List<LifeCell>>>(desiredWorkers);
         for (var start = 0; start < cells.Count; start += chunkSize)
@@ -174,12 +179,12 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
             tasks.Add(Task.Run(() => EvaluateChunk(cells, localStart, localEnd, active, ct), ct));
         }
 
-        await Task.WhenAll(tasks.ToArray());
+        var chunks = await Task.WhenAll(tasks).ConfigureAwait(false);
 
         var alive = new List<LifeCell>(cells.Count);
-        foreach (var task in tasks)
+        foreach (var chunk in chunks)
         {
-            alive.AddRange(task.Result);
+            alive.AddRange(chunk);
         }
 
         return alive;
@@ -193,7 +198,7 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
     private static List<LifeCell> EvaluateChunk(
         List<LifeCell> cells, int start, int end, HashSet<LifeCell> active, CancellationToken ct)
     {
-        var result = new List<LifeCell>();
+        var result = new List<LifeCell>(end - start);
         for (var i = start; i < end; i++)
         {
             // Observe cancellation at the start of the chunk and every 1024 cells thereafter.
