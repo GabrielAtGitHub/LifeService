@@ -207,6 +207,10 @@ dotnet test                  # run unit + integration tests
 dotnet run --project src/LifeService.Api   # serve the API (OpenAPI at /openapi in Development)
 ```
 
+For local configuration, running, and end-to-end client request/response examples, see
+[`docs/usage.md`](docs/usage.md). A ready-to-run request collection lives in
+[`src/LifeService.Api/LifeService.Api.http`](src/LifeService.Api/LifeService.Api.http).
+
 ### Project layout
 
 ```
