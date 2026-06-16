@@ -17,7 +17,7 @@ overrides storage to SQLite in `appsettings.Development.json`.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `Life:Limits:MaxActiveCells` | `10000` | Max live/potential cells per generation (else `ActiveCellLimitExceeded`) |
+| `Life:Limits:MaxActiveCells` | `10000` | Max candidate cells (cells with a live neighbour) per generation (else `ActiveCellLimitExceeded`) |
 | `Life:Limits:MaxStatesPerRequest` | `1000` | Max states per batch / range request |
 | `Life:Limits:MaxRetriesPerBoard` | `3` | Failures before a board is quarantined |
 | `Life:Compute:WorkerMinCellsPerTask` | `128` | Minimum chunk size before the engine goes parallel |
