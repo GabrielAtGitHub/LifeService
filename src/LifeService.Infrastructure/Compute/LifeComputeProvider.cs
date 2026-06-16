@@ -1,0 +1,231 @@
+using System.Diagnostics;
+using LifeService.Domain;
+using LifeService.Domain.Abstractions;
+using LifeService.Domain.Configuration;
+using LifeService.Domain.Diagnostics;
+using LifeService.Domain.Errors;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+namespace LifeService.Infrastructure.Compute;
+
+/// <summary>
+/// Deterministic director/worker compute engine (SYSTEM_SPECIFICATION.md §8).
+///
+/// Director phase: build the de-duplicated set of "potential" cells (active cells plus their
+/// eight neighbours). Worker phase: partition the potential set into disjoint chunks and, in
+/// parallel, evaluate each cell against the Game of Life rules using read-only lookups into the
+/// active set. Reduce phase: union the per-worker results. Because chunks are disjoint and each
+/// worker only emits cells it owns, no write conflicts are possible and no de-duplication is
+/// required.
+/// </summary>
+public sealed class LifeComputeProvider : ILifeComputeProvider
+{
+    private readonly LifeLimitsOptions _limits;
+    private readonly LifeComputeOptions _compute;
+    private readonly LifeMetrics _metrics;
+    private readonly ILogger<LifeComputeProvider> _logger;
+
+    public LifeComputeProvider(
+        IOptions<LifeLimitsOptions> limits,
+        IOptions<LifeComputeOptions> compute,
+        LifeMetrics metrics,
+        ILogger<LifeComputeProvider> logger)
+    {
+        _limits = limits.Value;
+        _compute = compute.Value;
+        _metrics = metrics;
+        _logger = logger;
+    }
+
+    public Task<LifeState> ComputeNextStateAsync(LifeState current, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var next = ComputeNext(current, ct);
+        return Task.FromResult(next);
+    }
+
+    public Task<IReadOnlyList<LifeState>> ComputeNextNStatesAsync(
+        LifeState current, int n, CancellationToken ct)
+    {
+        if (n < 0)
+        {
+            throw LifeException.InvalidRange(0, n);
+        }
+
+        var results = new List<LifeState>(n);
+        var cursor = current;
+        for (var i = 0; i < n; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            cursor = ComputeNext(cursor, ct);
+            results.Add(cursor);
+        }
+
+        return Task.FromResult<IReadOnlyList<LifeState>>(results);
+    }
+
+    public Task<SolutionSummary> ComputeUntilSteadyOrLimitAsync(
+        BoardId boardId, LifeState initial, int maxStates, CancellationToken ct)
+    {
+        using var activity = LifeDiagnostics.StartOperation("ComputeUntilSteadyOrLimit", boardId);
+
+        var detector = new SteadyStateDetector();
+        var current = initial;
+        detector.Observe(current); // record the starting state at its own label
+
+        for (var i = 0; i < maxStates; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            current = ComputeNext(current, ct);
+            var result = detector.Observe(current);
+            if (result.IsSteady)
+            {
+                activity?.SetTag("status", result.Status.ToString());
+                return Task.FromResult(new SolutionSummary
+                {
+                    BoardId = boardId,
+                    Status = result.Status,
+                    LastComputedLabel = current.Label,
+                    OscillationPeriodStart = result.PeriodStart,
+                    OscillationPeriodLength = result.PeriodLength,
+                });
+            }
+        }
+
+        activity?.SetTag("status", nameof(SolutionStatus.Incomplete));
+        return Task.FromResult(new SolutionSummary
+        {
+            BoardId = boardId,
+            Status = SolutionStatus.Incomplete,
+            LastComputedLabel = current.Label,
+        });
+    }
+
+    /// <summary>Computes the successor of <paramref name="current"/> without mutating it.</summary>
+    private LifeState ComputeNext(LifeState current, CancellationToken ct)
+    {
+        using var activity = LifeDiagnostics.StartOperation("ComputeNextState", current.BoardId);
+
+        var active = new HashSet<LifeCell>(current.ActiveCells);
+        var potential = BuildPotentialCells(active);
+
+        if (potential.Count > _limits.MaxActiveCells)
+        {
+            throw LifeException.ActiveCellLimitExceeded(potential.Count, _limits.MaxActiveCells);
+        }
+
+        var alive = EvaluatePotentialCells(potential, active, ct);
+
+        _metrics.StatesComputed.Add(1);
+        // active_cells is an UpDownCounter reflecting the delta to the latest computed state.
+        _metrics.ActiveCells.Add(alive.Count - active.Count);
+
+        activity?.SetTag("activeCells", alive.Count);
+        return new LifeState(current.BoardId, current.Label.Next(), alive);
+    }
+
+    /// <summary>Director phase: active cells plus their eight neighbours, de-duplicated.</summary>
+    private static HashSet<LifeCell> BuildPotentialCells(HashSet<LifeCell> active)
+    {
+        var potential = new HashSet<LifeCell>(active.Count * 9);
+        foreach (var cell in active)
+        {
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                for (var dy = -1; dy <= 1; dy++)
+                {
+                    potential.Add(new LifeCell(cell.X + dx, cell.Y + dy));
+                }
+            }
+        }
+
+        return potential;
+    }
+
+    /// <summary>
+    /// Worker + reduce phase: partition the potential set into chunks of at least
+    /// <see cref="LifeComputeOptions.WorkerMinCellsPerTask"/> and evaluate in parallel.
+    /// </summary>
+    private List<LifeCell> EvaluatePotentialCells(
+        HashSet<LifeCell> potential, HashSet<LifeCell> active, CancellationToken ct)
+    {
+        var cells = new List<LifeCell>(potential);
+
+        var minPerTask = Math.Max(1, _compute.WorkerMinCellsPerTask);
+        var maxWorkers = Math.Max(1, (int)(Environment.ProcessorCount * _compute.ThreadPoolFactor));
+
+        // Small boards stay single-threaded to avoid scheduling overhead.
+        if (cells.Count <= minPerTask)
+        {
+            return EvaluateChunk(cells, 0, cells.Count, active);
+        }
+
+        var desiredWorkers = Math.Min(maxWorkers, (cells.Count + minPerTask - 1) / minPerTask);
+        var chunkSize = (cells.Count + desiredWorkers - 1) / desiredWorkers;
+
+        var tasks = new List<Task<List<LifeCell>>>(desiredWorkers);
+        for (var start = 0; start < cells.Count; start += chunkSize)
+        {
+            var localStart = start;
+            var localEnd = Math.Min(start + chunkSize, cells.Count);
+            tasks.Add(Task.Run(() => EvaluateChunk(cells, localStart, localEnd, active), ct));
+        }
+
+        Task.WaitAll(tasks.ToArray(), ct);
+
+        var alive = new List<LifeCell>();
+        foreach (var task in tasks)
+        {
+            alive.AddRange(task.Result);
+        }
+
+        return alive;
+    }
+
+    /// <summary>
+    /// Pure Game of Life rule evaluation for a half-open slice of the potential set. Reads only
+    /// the shared (immutable for the duration) <paramref name="active"/> set, so it is thread-safe.
+    /// </summary>
+    private static List<LifeCell> EvaluateChunk(
+        List<LifeCell> cells, int start, int end, HashSet<LifeCell> active)
+    {
+        var result = new List<LifeCell>();
+        for (var i = start; i < end; i++)
+        {
+            var cell = cells[i];
+            var neighbours = CountLiveNeighbours(cell, active);
+            var isAlive = active.Contains(cell);
+
+            // Birth on exactly 3; survival on 2 or 3.
+            if ((isAlive && (neighbours == 2 || neighbours == 3)) || (!isAlive && neighbours == 3))
+            {
+                result.Add(cell);
+            }
+        }
+
+        return result;
+    }
+
+    private static int CountLiveNeighbours(LifeCell cell, HashSet<LifeCell> active)
+    {
+        var count = 0;
+        for (var dx = -1; dx <= 1; dx++)
+        {
+            for (var dy = -1; dy <= 1; dy++)
+            {
+                if (dx == 0 && dy == 0)
+                {
+                    continue;
+                }
+
+                if (active.Contains(new LifeCell(cell.X + dx, cell.Y + dy)))
+                {
+                    count++;
+                }
+            }
+        }
+
+        return count;
+    }
+}

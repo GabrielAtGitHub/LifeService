@@ -1,0 +1,11 @@
+<Project>
+
+  <!--
+    Solution-wide build settings. Pins the language version to C# 13 per CLAUDE.md §6 /
+    SYSTEM_SPECIFICATION.md §2, while targeting the installed .NET 10 runtime.
+  -->
+  <PropertyGroup>
+    <LangVersion>13.0</LangVersion>
+  </PropertyGroup>
+
+</Project>

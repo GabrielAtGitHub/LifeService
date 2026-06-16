@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LifeService.Api/LifeService.Api.csproj" />
+    <Project Path="src/LifeService.Application/LifeService.Application.csproj" />
+    <Project Path="src/LifeService.Domain/LifeService.Domain.csproj" />
+    <Project Path="src/LifeService.Infrastructure/LifeService.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LifeService.Tests.Integration/LifeService.Tests.Integration.csproj" />
+    <Project Path="tests/LifeService.Tests.Unit/LifeService.Tests.Unit.csproj" />
+  </Folder>
+</Solution>

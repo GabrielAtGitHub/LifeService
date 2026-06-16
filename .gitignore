@@ -1,0 +1,12 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio / IDE state
+.vs/
+*.user
+
+# Local SQLite development database (created at runtime)
+*.db
+*.db-shm
+*.db-wal
