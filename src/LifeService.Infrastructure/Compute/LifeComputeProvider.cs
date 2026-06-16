@@ -36,6 +36,30 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
         _compute = compute.Value;
         _metrics = metrics;
         _logger = logger;
+
+        ConfigureThreadPool();
+    }
+
+    /// <summary>
+    /// Sizes the process-wide thread pool for the engine's parallel workers: minimum worker threads
+    /// = <see cref="Environment.ProcessorCount"/>, maximum = ProcessorCount × ThreadPoolFactor.
+    /// Completion-port thread limits are left unchanged. Max is clamped to at least the minimum so
+    /// the calls remain valid for any configured factor.
+    /// </summary>
+    private void ConfigureThreadPool()
+    {
+        var minWorkerThreads = Math.Max(1, Environment.ProcessorCount);
+        var maxWorkerThreads = Math.Max(minWorkerThreads,
+            (int)(Environment.ProcessorCount * _compute.ThreadPoolFactor));
+
+        // Cache the worker cap for the partitioning logic in EvaluatePotentialCells.
+        _compute.MaxWorkers = maxWorkerThreads;
+
+        ThreadPool.GetMinThreads(out _, out var minCompletionPortThreads);
+        ThreadPool.SetMinThreads(minWorkerThreads, minCompletionPortThreads);
+
+        ThreadPool.GetMaxThreads(out _, out var maxCompletionPortThreads);
+        ThreadPool.SetMaxThreads(maxWorkerThreads, maxCompletionPortThreads);
     }
 
     public Task<LifeState> ComputeNextStateAsync(LifeState current, CancellationToken ct)
@@ -144,8 +168,8 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
     }
 
     /// <summary>
-    /// Worker + reduce phase: partition the potential set into chunks of at least
-    /// <see cref="LifeComputeOptions.WorkerMinCellsPerTask"/> and evaluate in parallel.
+    /// Worker + reduce phase: partition the potential set across exactly
+    /// <c>ProcessorCount × ThreadPoolFactor</c> workers and evaluate them in parallel.
     /// </summary>
     private List<LifeCell> EvaluatePotentialCells(
         HashSet<LifeCell> potential, HashSet<LifeCell> active, CancellationToken ct)
@@ -153,18 +177,17 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
         var cells = new List<LifeCell>(potential);
 
         var minPerTask = Math.Max(1, _compute.WorkerMinCellsPerTask);
-        var maxWorkers = Math.Max(1, (int)(Environment.ProcessorCount * _compute.ThreadPoolFactor));
 
-        // Small boards stay single-threaded to avoid scheduling overhead.
+        // Small boards stay single-threaded to avoid scheduling overhead (also guards the empty case).
         if (cells.Count <= minPerTask)
         {
             return EvaluateChunk(cells, 0, cells.Count, active);
         }
 
-        var desiredWorkers = Math.Min(maxWorkers, (cells.Count + minPerTask - 1) / minPerTask);
-        var chunkSize = (cells.Count + desiredWorkers - 1) / desiredWorkers;
+        // Use exactly MaxWorkers workers: T = ProcessorCount * ThreadPoolFactor (computed at startup).
+        var chunkSize = (cells.Count + _compute.MaxWorkers - 1) / _compute.MaxWorkers;
 
-        var tasks = new List<Task<List<LifeCell>>>(desiredWorkers);
+        var tasks = new List<Task<List<LifeCell>>>(_compute.MaxWorkers);
         for (var start = 0; start < cells.Count; start += chunkSize)
         {
             var localStart = start;
