@@ -3,32 +3,31 @@
 ### Health check
 GET {{host}}/health
 
-### Upload an initial board (a vertical blinker); captures the new board id
+### Upload an initial board (a vertical blinker); the request is named so its
+### response can be referenced by the requests below.
 # @name upload
 POST {{host}}/api/life/boards
 Content-Type: application/json
 
 { "cells": [ { "x": 1, "y": 0 }, { "x": 1, "y": 1 }, { "x": 1, "y": 2 } ] }
 
-@boardId = {{upload.response.body.boardId}}
-
 ### Advance one generation
-POST {{host}}/api/life/boards/{{boardId}}/next
+POST {{host}}/api/life/boards/{{upload.response.body.$.boardId}}/next
 
 ### Advance the next four generations
-POST {{host}}/api/life/boards/{{boardId}}/next-sequence?n=4
+POST {{host}}/api/life/boards/{{upload.response.body.$.boardId}}/next-sequence?n=4
 
 ### Read persisted states in label range [0, 2]
-GET {{host}}/api/life/boards/{{boardId}}/states?from=0&to=2
+GET {{host}}/api/life/boards/{{upload.response.body.$.boardId}}/states?from=0&to=2
 
 ### Compute to a steady state (summary)
-GET {{host}}/api/life/boards/{{boardId}}/final
+GET {{host}}/api/life/boards/{{upload.response.body.$.boardId}}/final
 
 ### Inspect quarantine (204 when none)
-GET {{host}}/api/life/boards/{{boardId}}/quarantine
+GET {{host}}/api/life/boards/{{upload.response.body.$.boardId}}/quarantine
 
 ### Clear quarantine
-DELETE {{host}}/api/life/boards/{{boardId}}/quarantine
+DELETE {{host}}/api/life/boards/{{upload.response.body.$.boardId}}/quarantine
 
 ### Error example: unknown board -> 404 BoardNotFound
 POST {{host}}/api/life/boards/00000000-0000-0000-0000-000000000000/next
