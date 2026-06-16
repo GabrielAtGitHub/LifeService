@@ -142,6 +142,7 @@ public class ComputeProviderPropertyTests
         var provider = CreateProvider();
 
         var state = new LifeState(BoardId.New(), LifeStateLabel.Initial, board.Cells);
+        // FsCheck 2.x has no Testable for Task<bool>; the engine completes synchronously anyway.
         var batch = provider.ComputeNextNStatesAsync(state, n, CancellationToken.None)
             .GetAwaiter().GetResult();
 
