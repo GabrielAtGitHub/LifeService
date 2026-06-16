@@ -16,15 +16,15 @@ documentation updates, refactoring, and PR interactions.
 - Documentation must include:
   - System overview
   - Component boundaries (API, Application, Domain, Infrastructure)
-  - Compute engine flow (director/worker model)
+  - Compute engine flow (map/reduce model)
   - Persistence model (dev + prod)
   - Observability model (logging + metrics + tracing)
   - Domain invariants and failure modes
   - Mermaid diagrams for architecture, data flow, and compute pipeline
 - Keep `README.md` **synchronized** with code changes.
 - When code changes affect architecture, update the documentation accordingly.
-- **Include the Compute Design (director/worker model) from SYSTEM_SPECIFICATION.md in all architecture documentation.**
-- **Ensure README.md reflects the compute pipeline, worker model, chunking, and steady‑state detection.**
+- **Include the Compute Design (map/reduce model) from SYSTEM_SPECIFICATION.md in all architecture documentation.**
+- **Ensure README.md reflects the compute pipeline, map/reduce model, chunking, and steady‑state detection.**
 
 ---
 
@@ -82,7 +82,7 @@ refactoring, repository‑wide tasks).
   - Side‑effect controlled
   - Testable
   - Dependency‑injected
-- **The compute engine must follow the director/worker Compute Design defined in SYSTEM_SPECIFICATION.md.**
+- **The compute engine must follow the map/reduce Compute Design defined in SYSTEM_SPECIFICATION.md.**
 
 ---
 
@@ -137,7 +137,7 @@ refactoring, repository‑wide tasks).
   - API endpoints
   - Invariants
 - **Implement the compute provider according to the Compute Design section in SYSTEM_SPECIFICATION.md.**
-- **Use the director/worker model, chunking rules, thread‑pool sizing, and reduce phase as defined in the specification.**
+- **Use the map/reduce model, chunking rules, thread‑pool sizing, and reduce phase as defined in the specification.**
 - **Ensure steady‑state detection matches the specification’s canonical‑state algorithm.**
 
 ---

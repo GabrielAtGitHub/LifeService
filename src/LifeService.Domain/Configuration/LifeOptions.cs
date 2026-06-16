@@ -10,7 +10,7 @@ public sealed class LifeLimitsOptions
     public int MaxRetriesPerBoard { get; init; } = 3;
 }
 
-/// <summary>Tuning knobs for the director/worker compute engine. Bound from "Life:Compute".</summary>
+/// <summary>Tuning knobs for the map/reduce compute engine. Bound from "Life:Compute".</summary>
 public sealed class LifeComputeOptions
 {
     public const string SectionName = "Life:Compute";

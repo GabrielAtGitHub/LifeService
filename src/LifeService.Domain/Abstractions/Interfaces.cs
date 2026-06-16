@@ -28,7 +28,7 @@ public interface ILifeComputeService
 }
 
 /// <summary>
-/// Deterministic compute provider implementing the director/worker model
+/// Deterministic compute provider implementing the map/reduce model
 /// (SYSTEM_SPECIFICATION.md §5.2, §8, §9). Implementations must not mutate input state.
 /// </summary>
 public interface ILifeComputeProvider
