@@ -1,0 +1,6 @@
+# Normalize line endings across platforms.
+* text=auto
+
+# Shell scripts and git hooks must stay LF so they execute on Linux/macOS and in CI.
+*.sh text eol=lf
+.githooks/* text eol=lf
