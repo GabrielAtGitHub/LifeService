@@ -17,12 +17,6 @@ public sealed class LifeComputeOptions
 
     public int WorkerMinCellsPerTask { get; init; } = 128;
     public double ThreadPoolFactor { get; init; } = 2.0;
-
-    /// <summary>
-    /// Maximum number of parallel compute workers (ProcessorCount × ThreadPoolFactor). Not bound
-    /// from configuration — computed once at startup by the compute provider.
-    /// </summary>
-    public int MaxWorkers { get; set; }
 }
 
 /// <summary>Storage provider selection. Bound from "Life:Storage".</summary>
