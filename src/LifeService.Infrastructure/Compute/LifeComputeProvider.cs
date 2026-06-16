@@ -10,14 +10,13 @@ using Microsoft.Extensions.Options;
 namespace LifeService.Infrastructure.Compute;
 
 /// <summary>
-/// Deterministic director/worker compute engine (SYSTEM_SPECIFICATION.md §8).
+/// Deterministic map/reduce compute engine (SYSTEM_SPECIFICATION.md §8).
 ///
-/// Director phase: build the de-duplicated set of "potential" cells (active cells plus their
-/// eight neighbours). Worker phase: partition the potential set into disjoint chunks and, in
-/// parallel, evaluate each cell against the Game of Life rules using read-only lookups into the
-/// active set. Reduce phase: union the per-worker results. Because chunks are disjoint and each
-/// worker only emits cells it owns, no write conflicts are possible and no de-duplication is
-/// required.
+/// Map (scatter) phase: partition the active cells across workers; each worker scatters
+/// live-neighbour counts into its own local map. Reduce phase: merge the maps by summing counts
+/// per cell. Rule phase: each candidate cell is alive next per the B3/S23 rule. Because workers
+/// write only to local maps and count summation is order independent, there are no write conflicts
+/// and the result is independent of the partitioning.
 /// </summary>
 public sealed class LifeComputeProvider : ILifeComputeProvider
 {
@@ -108,14 +107,16 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
         using var activity = LifeDiagnostics.StartOperation("ComputeNextState", current.BoardId);
 
         var active = new HashSet<LifeCell>(current.ActiveCells);
-        var potential = BuildPotentialCells(active);
 
-        if (potential.Count > _limits.MaxActiveCells)
+        // Map + reduce: live-neighbour counts for every candidate cell.
+        var counts = await AccumulateNeighbourCountsAsync(active, ct).ConfigureAwait(false);
+
+        if (counts.Count > _limits.MaxActiveCells)
         {
-            throw LifeException.ActiveCellLimitExceeded(potential.Count, _limits.MaxActiveCells);
+            throw LifeException.ActiveCellLimitExceeded(counts.Count, _limits.MaxActiveCells);
         }
 
-        var alive = await EvaluatePotentialCellsAsync(potential, active, ct).ConfigureAwait(false);
+        var alive = ApplyRules(counts, active);
 
         _metrics.StatesComputed.Add(1);
         // active_cells is an UpDownCounter reflecting the delta to the latest computed state.
@@ -125,43 +126,25 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
         return new LifeState(current.BoardId, current.Label.Next(), alive);
     }
 
-    /// <summary>Director phase: active cells plus their eight neighbours, de-duplicated.</summary>
-    private static HashSet<LifeCell> BuildPotentialCells(HashSet<LifeCell> active)
-    {
-        var potential = new HashSet<LifeCell>(active.Count * 9);
-        foreach (var cell in active)
-        {
-            for (var dx = -1; dx <= 1; dx++)
-            {
-                for (var dy = -1; dy <= 1; dy++)
-                {
-                    potential.Add(new LifeCell(cell.X + dx, cell.Y + dy));
-                }
-            }
-        }
-
-        return potential;
-    }
-
     /// <summary>
-    /// Worker + reduce phase: split the potential set across up to
-    /// <c>min(ProcessorCount × ThreadPoolFactor, count / WorkerMinCellsPerTask)</c> workers and
-    /// evaluate them in parallel. Deriving the worker count from a floor division by
-    /// <see cref="LifeComputeOptions.WorkerMinCellsPerTask"/> guarantees every chunk holds at least
-    /// that many cells, so small boards don't over-parallelise.
+    /// Map (scatter) + reduce phase: partition the active cells across up to
+    /// <c>min(ProcessorCount × ThreadPoolFactor, activeCount / WorkerMinCellsPerTask)</c> workers.
+    /// Each worker scatters live-neighbour counts into a local map (no shared writes); the maps are
+    /// then merged by summing counts. Summation is associative/commutative, so the merged result is
+    /// independent of how the active cells were partitioned.
     /// </summary>
-    private async Task<List<LifeCell>> EvaluatePotentialCellsAsync(
-        HashSet<LifeCell> potential, HashSet<LifeCell> active, CancellationToken ct)
+    private async Task<Dictionary<LifeCell, int>> AccumulateNeighbourCountsAsync(
+        HashSet<LifeCell> active, CancellationToken ct)
     {
-        var cells = new List<LifeCell>(potential);
+        var cells = new List<LifeCell>(active);
 
         var minPerTask = Math.Max(1, _compute.WorkerMinCellsPerTask);
         var maxWorkers = Math.Max(1, (int)(Environment.ProcessorCount * _compute.ThreadPoolFactor));
 
-        // Small boards stay single-threaded to avoid scheduling overhead.
+        // Small boards stay single-threaded to avoid scheduling overhead (also guards the empty case).
         if (cells.Count / minPerTask <= 1)
         {
-            return EvaluateChunk(cells, 0, cells.Count, active, ct);
+            return ScatterChunk(cells, 0, cells.Count, ct);
         }
 
         var desiredWorkers = Math.Min(maxWorkers, cells.Count / minPerTask);
@@ -171,34 +154,38 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
         var chunkSize = (cells.Count + desiredWorkers - 1) / desiredWorkers;
         Debug.Assert(chunkSize >= minPerTask, "chunk size must not fall below WorkerMinCellsPerTask");
 
-        var tasks = new List<Task<List<LifeCell>>>(desiredWorkers);
+        var tasks = new List<Task<Dictionary<LifeCell, int>>>(desiredWorkers);
         for (var start = 0; start < cells.Count; start += chunkSize)
         {
             var localStart = start;
             var localEnd = Math.Min(start + chunkSize, cells.Count);
-            tasks.Add(Task.Run(() => EvaluateChunk(cells, localStart, localEnd, active, ct), ct));
+            tasks.Add(Task.Run(() => ScatterChunk(cells, localStart, localEnd, ct), ct));
         }
 
-        var chunks = await Task.WhenAll(tasks).ConfigureAwait(false);
+        var partials = await Task.WhenAll(tasks).ConfigureAwait(false);
 
-        var alive = new List<LifeCell>(cells.Count);
-        foreach (var chunk in chunks)
+        // Reduce: sum the per-worker count maps into the first one.
+        var merged = partials[0];
+        for (var i = 1; i < partials.Length; i++)
         {
-            alive.AddRange(chunk);
+            foreach (var (cell, count) in partials[i])
+            {
+                merged[cell] = merged.GetValueOrDefault(cell) + count;
+            }
         }
 
-        return alive;
+        return merged;
     }
 
     /// <summary>
-    /// Pure Game of Life rule evaluation for a half-open slice of the potential set. Reads only
-    /// the shared (immutable for the duration) <paramref name="active"/> set, so it is thread-safe.
-    /// Cancellation is observed periodically so large chunks stop promptly.
+    /// Worker: scatter live-neighbour counts from a half-open slice of the active cells into a local
+    /// map. Writes only to its own dictionary, so it is thread-safe. Cancellation is observed
+    /// periodically so large chunks stop promptly.
     /// </summary>
-    private static List<LifeCell> EvaluateChunk(
-        List<LifeCell> cells, int start, int end, HashSet<LifeCell> active, CancellationToken ct)
+    private static Dictionary<LifeCell, int> ScatterChunk(
+        List<LifeCell> cells, int start, int end, CancellationToken ct)
     {
-        var result = new List<LifeCell>(end - start);
+        var counts = new Dictionary<LifeCell, int>((end - start) * 8);
         for (var i = start; i < end; i++)
         {
             // Observe cancellation at the start of the chunk and every 1024 cells thereafter.
@@ -208,38 +195,42 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
             }
 
             var cell = cells[i];
-            var neighbours = CountLiveNeighbours(cell, active);
-            var isAlive = active.Contains(cell);
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                for (var dy = -1; dy <= 1; dy++)
+                {
+                    if (dx == 0 && dy == 0)
+                    {
+                        continue;
+                    }
 
+                    var neighbour = new LifeCell(cell.X + dx, cell.Y + dy);
+                    counts[neighbour] = counts.GetValueOrDefault(neighbour) + 1;
+                }
+            }
+        }
+
+        return counts;
+    }
+
+    /// <summary>
+    /// Rule phase: a cell is alive next iff it is currently alive with 2 or 3 live neighbours, or
+    /// currently dead with exactly 3. Cells with no live neighbours never appear in the count map
+    /// and correctly die. One active-set lookup per candidate.
+    /// </summary>
+    private static List<LifeCell> ApplyRules(Dictionary<LifeCell, int> counts, HashSet<LifeCell> active)
+    {
+        var alive = new List<LifeCell>(counts.Count);
+        foreach (var (cell, neighbours) in counts)
+        {
+            var isAlive = active.Contains(cell);
             // Birth on exactly 3; survival on 2 or 3.
             if ((isAlive && (neighbours == 2 || neighbours == 3)) || (!isAlive && neighbours == 3))
             {
-                result.Add(cell);
+                alive.Add(cell);
             }
         }
 
-        return result;
-    }
-
-    private static int CountLiveNeighbours(LifeCell cell, HashSet<LifeCell> active)
-    {
-        var count = 0;
-        for (var dx = -1; dx <= 1; dx++)
-        {
-            for (var dy = -1; dy <= 1; dy++)
-            {
-                if (dx == 0 && dy == 0)
-                {
-                    continue;
-                }
-
-                if (active.Contains(new LifeCell(cell.X + dx, cell.Y + dy)))
-                {
-                    count++;
-                }
-            }
-        }
-
-        return count;
+        return alive;
     }
 }

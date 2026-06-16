@@ -24,7 +24,7 @@ rejected until explicitly cleared.
 | --- | --- |
 | Language / runtime | C# / .NET 10 (ASP.NET Core Minimal APIs) |
 | Architecture | Clean architecture: Domain ← Application ← Infrastructure ← API |
-| Compute | Deterministic director/worker engine over a sparse cell set |
+| Compute | Deterministic map/reduce engine over a sparse cell set |
 | Persistence (dev) | In-memory provider (default); SQLite for relational dev |
 | Persistence (prod) | SQL/NoSQL (SQL Server, PostgreSQL, Cosmos DB, DynamoDB) + optional Redis |
 | Observability | `ILogger<T>`, `System.Diagnostics.Metrics`, `ActivitySource` (`GameOfLife.Engine`) |
@@ -55,33 +55,34 @@ graph TD
 | --- | --- | --- |
 | **Domain** | `LifeService.Domain` | `BoardId`, `LifeCell`, `LifeStateLabel`, `LifeState`, `SolutionSummary`, `QuarantineInfo`; interfaces `ILifeComputeService`/`ILifeComputeProvider`/`ILifeStorageProvider`; options; `LifeErrorCode`/`LifeException`; metrics + activity source. |
 | **Application** | `LifeService.Application` | `LifeComputeService` — validation, quarantine gating/retry, persistence, observability. |
-| **Infrastructure** | `LifeService.Infrastructure` | `LifeComputeProvider` (director/worker), `SteadyStateDetector`, `InMemoryLifeStorageProvider`. |
+| **Infrastructure** | `LifeService.Infrastructure` | `LifeComputeProvider` (map/reduce), `SteadyStateDetector`, `InMemoryLifeStorageProvider`. |
 | **API** | `LifeService.Api` | Minimal API endpoints under `/api/life`, global exception middleware, `/health`, DI + options binding. |
 
 ---
 
-## 3. Compute Engine Flow (Director / Worker)
+## 3. Compute Engine Flow (Map / Reduce)
 
-The engine computes the next generation from a sparse representation using a director/worker model.
+The engine computes the next generation from a sparse representation using a map/reduce model.
 See [`docs/engine.md`](docs/engine.md) for the full algorithm and tuning.
 
 ```mermaid
 flowchart TD
-    A[Current state: HashSet&lt;LifeCell&gt;] --> B[Director: build potential cells<br/>active ∪ 8-neighbours, de-duplicated]
-    B --> C{potential.Count &gt; MaxActiveCells?}
-    C -- yes --> E[throw ActiveCellLimitExceeded]
-    C -- no --> D[Partition into chunks<br/>≥ WorkerMinCellsPerTask<br/>workers = ProcessorCount × ThreadPoolFactor]
-    D --> W1[Worker: apply GoL rules<br/>to chunk via read-only lookups]
-    D --> W2[Worker: ...]
-    D --> Wn[Worker: ...]
-    W1 --> R[Reduce: union of live cells<br/>no de-dup needed — chunks disjoint]
+    A[Current state: HashSet&lt;LifeCell&gt;] --> P[Partition active cells into chunks<br/>≥ WorkerMinCellsPerTask<br/>workers = min ProcessorCount × ThreadPoolFactor, activeCount / WorkerMinCellsPerTask]
+    P --> W1[Map: scatter neighbour counts<br/>into a local count map]
+    P --> W2[Map: ...]
+    P --> Wn[Map: ...]
+    W1 --> R[Reduce: merge maps, sum counts per cell]
     W2 --> R
     Wn --> R
-    R --> O[Next state at label+1]
+    R --> C{candidate count &gt; MaxActiveCells?}
+    C -- yes --> E[throw ActiveCellLimitExceeded]
+    C -- no --> Rule[Rule phase: B3/S23 per candidate]
+    Rule --> O[Next state at label+1]
 ```
 
 **Rules (per cell):** survive on 2–3 live neighbours; a dead cell is born on exactly 3. Input state
-is never mutated; output is deterministic regardless of worker partitioning.
+is never mutated; output is deterministic regardless of how the active cells are partitioned (count
+summation is order-independent).
 
 ### Steady-state detection
 

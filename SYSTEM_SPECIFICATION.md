@@ -63,7 +63,7 @@ LifeService.Domain
     Core models, invariants, interfaces (no infrastructure)
 
 LifeService.Infrastructure
-    Storage providers, compute provider (director/worker), Redis/DB integration
+    Storage providers, compute provider (map/reduce), Redis/DB integration
 
 LifeService.Tests.Unit
     Domain + application unit tests
@@ -137,7 +137,7 @@ public interface ILifeComputeService
 }
 ```
 
-## 5.2 Compute Provider (Director/Worker)
+## 5.2 Compute Provider (Map/Reduce)
 
 ```csharp
 public interface ILifeComputeProvider
@@ -256,30 +256,34 @@ Endpoints include:
 
 ---
 
-# 8. Compute Design (Director/Worker)
+# 8. Compute Design (Map / Reduce)
 
 ### Sparse Representation
-- Use `HashSet<LifeCell>` or `ImmutableHashSet<LifeCell>`.
-
-### Potential Cells
-- Active cells + their 8 neighbors.
-- Deduplicate before processing.
+- Use `HashSet<LifeCell>` for the active set.
 
 ### Thread Pool
 - `T = Environment.ProcessorCount * ThreadPoolFactor`
 
 ### Chunking
-- If `potential.Count > MaxActiveCells` → error.
-- Partition into chunks ≥ `WorkerMinCellsPerTask`.
+- Partition the **active** cells into chunks ≥ `WorkerMinCellsPerTask`.
+- Worker count = `min(T, activeCount / WorkerMinCellsPerTask)` (floor division), so each worker
+  receives at least `WorkerMinCellsPerTask` cells and small boards run single-threaded.
 
-### Worker Behavior
-- Process potental cells.
-- Apply Game of Life rules.
-- Return active cells for next state.
+### Map (Scatter) Phase
+- Each worker scatters into a **local** `Dictionary<LifeCell, int>`: for every active cell in its
+  chunk, increment the neighbour count of each of its 8 neighbours.
+- Local maps mean no shared writes, so the map phase is conflict-free.
 
 ### Reduce Phase
-- Merge worker results.
-- Deduplication should not be necessary. Write conflicts are prevented by generating the potential cells at nest state.
+- Merge the per-worker maps by summing counts per cell. Summation is associative/commutative, so
+  the merged result is independent of the partitioning (deterministic).
+- If the merged candidate count `> MaxActiveCells` → error (`ActiveCellLimitExceeded`).
+
+### Rule Phase
+- For each `(cell, count)` in the merged map, the cell is alive next iff
+  `(cell is active AND count ∈ {2, 3}) OR (count == 3)`.
+- A live cell with no live neighbours never appears as a key in the map and therefore dies, as
+  required.
 
 ---
 
@@ -341,7 +345,7 @@ Endpoints include:
 
 1. Scaffold solution structure  
 2. Implement domain models + interfaces  
-3. Implement compute provider (director/worker)  
+3. Implement compute provider (map/reduce)  
 4. Implement storage providers (in‑memory + production)  
 5. Wire up API + middleware  
 6. Add configuration + DI  

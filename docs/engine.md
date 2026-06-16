@@ -1,7 +1,7 @@
-# Compute Engine — Director / Worker Model
+# Compute Engine — Map / Reduce Model
 
 The compute engine (`LifeService.Infrastructure.Compute.LifeComputeProvider`) implements the
-deterministic director/worker design from [`SYSTEM_SPECIFICATION.md`](../SYSTEM_SPECIFICATION.md) §8–§9.
+deterministic map/reduce design from [`SYSTEM_SPECIFICATION.md`](../SYSTEM_SPECIFICATION.md) §8–§9.
 
 ## Sparse representation
 
@@ -13,56 +13,58 @@ are signed 32-bit integers.
 
 ```mermaid
 flowchart LR
-    subgraph Director
-        A[active cells] --> B[potential = active ∪ 8-neighbours<br/>de-duplicated HashSet]
-        B --> L{count &gt; MaxActiveCells}
-    end
-    subgraph Workers
-        L -- no --> P[partition into disjoint chunks]
-        P --> W1[chunk → live cells]
-        P --> W2[chunk → live cells]
-        P --> W3[chunk → live cells]
+    A[active cells] --> P[partition active cells<br/>into chunks ≥ WorkerMinCellsPerTask]
+    subgraph Map
+        P --> W1[scatter → local count map]
+        P --> W2[scatter → local count map]
+        P --> W3[scatter → local count map]
     end
     subgraph Reduce
-        W1 --> U[union]
-        W2 --> U
-        W3 --> U
+        W1 --> M[merge: sum counts per cell]
+        W2 --> M
+        W3 --> M
     end
-    U --> N[next state @ label+1]
+    M --> L{candidate count &gt; MaxActiveCells}
     L -- yes --> X[ActiveCellLimitExceeded]
+    L -- no --> R[rule phase: B3/S23 per candidate]
+    R --> N[next state @ label+1]
 ```
 
-### 1. Director phase
-Builds the **potential set** — every active cell plus its eight neighbours — de-duplicated in a
-`HashSet`. Only these cells can possibly be alive next generation, so the rest of the infinite grid
-is ignored. If `potential.Count > MaxActiveCells`, the engine throws `ActiveCellLimitExceeded`.
+### 1. Map (scatter) phase
+The active cells are materialised into a list and partitioned into chunks:
 
-### 2. Worker phase
-The potential set is materialised into a list and partitioned into **disjoint** chunks:
+- worker count `T = min(max(1, ProcessorCount × ThreadPoolFactor), activeCount / WorkerMinCellsPerTask)`;
+- each chunk has at least `WorkerMinCellsPerTask` cells (floor division guarantees it);
+- boards with `< 2 × WorkerMinCellsPerTask` active cells run single-threaded (no scheduling overhead).
 
-- worker count `T = max(1, ProcessorCount × ThreadPoolFactor)`;
-- each chunk has at least `WorkerMinCellsPerTask` cells;
-- boards with `≤ WorkerMinCellsPerTask` potential cells run single-threaded (no scheduling overhead).
+Each worker scatters into its **own local** `Dictionary<LifeCell, int>`: for every active cell, it
+increments the neighbour count of each of the cell's eight neighbours. Workers share no mutable
+state, so the map phase is conflict-free.
 
-Each worker evaluates the Game of Life rule for its cells using **read-only lookups** into the shared
-active set:
+### 2. Reduce phase
+The per-worker count maps are merged by **summing** the counts for each cell. Summation is
+associative and commutative, so the merged map is independent of how the active cells were
+partitioned. If the merged candidate count exceeds `MaxActiveCells`, the engine throws
+`ActiveCellLimitExceeded`.
+
+### 3. Rule phase
+Each `(cell, count)` in the merged map is evaluated with **one** active-set lookup:
 
 ```
 liveNext = isAlive ? (neighbours == 2 || neighbours == 3)   // survival
                    : (neighbours == 3);                       // birth
 ```
 
-### 3. Reduce phase
-Worker outputs are concatenated. Because chunks are disjoint partitions of distinct potential cells,
-**no two workers can emit the same cell** — there are no write conflicts and no de-duplication is
-required. The result is the next `LifeState` at `label + 1`.
+A live cell with no live neighbours never appears as a key in the map, so it correctly dies. The
+surviving/born cells form the next `LifeState` at `label + 1`.
 
 ## Determinism & safety
 
 - **No input mutation** — the engine copies the incoming cells into a local `HashSet`; `LifeState`
   itself stores a defensive read-only copy.
-- **Determinism** — the output set is independent of how the potential cells are partitioned across
-  workers, so results are reproducible regardless of `ThreadPoolFactor` or core count.
+- **Determinism** — merged neighbour counts (and therefore the output set) are independent of how
+  the active cells are partitioned across workers, so results are reproducible regardless of
+  `ThreadPoolFactor` or core count.
 
 ## Steady-state detection (`SteadyStateDetector`)
 
@@ -86,7 +88,7 @@ label at which it was first observed.
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| `WorkerMinCellsPerTask` | 128 | Minimum chunk size; below this the board runs single-threaded |
+| `WorkerMinCellsPerTask` | 128 | Minimum active cells per worker; below `2×` this the board runs single-threaded |
 | `ThreadPoolFactor` | 2.0 | Multiplier on `ProcessorCount` for the worker cap |
 
-`MaxActiveCells` (`Life:Limits`, default 10000) bounds the potential-set size per generation.
+`MaxActiveCells` (`Life:Limits`, default 10000) bounds the merged candidate count per generation.
