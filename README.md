@@ -216,6 +216,19 @@ src/
   LifeService.Infrastructure  # compute engine + steady-state detector + storage
   LifeService.Api             # HTTP endpoints, middleware, DI
 tests/
-  LifeService.Tests.Unit          # rules, steady-state, limits, quarantine
+  LifeService.Tests.Unit          # rules, steady-state, limits, quarantine, property-based
   LifeService.Tests.Integration   # API + infrastructure end-to-end
 ```
+
+### Continuous integration & git hooks
+
+- **CI:** `.github/workflows/ci.yml` runs `dotnet restore`/`build`/`test` (Release) on every push to
+  `master` and on every pull request.
+- **Pre-commit hook:** `.githooks/pre-commit` runs the test suite before each commit. Activate it
+  once per clone:
+
+  ```bash
+  git config core.hooksPath .githooks
+  ```
+
+  Bypass for a single commit (sparingly) with `git commit --no-verify`.

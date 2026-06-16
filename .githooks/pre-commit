@@ -1,0 +1,13 @@
+#!/bin/sh
+# Pre-commit hook: run the full test suite before allowing a commit.
+#
+# Activate once per clone with:
+#   git config core.hooksPath .githooks
+#
+# Bypass for a single commit (use sparingly) with:
+#   git commit --no-verify
+set -e
+
+echo "[pre-commit] Running dotnet test..."
+dotnet test --nologo
+echo "[pre-commit] Tests passed."
