@@ -36,7 +36,7 @@ internal static class BoardArbitraries
 }
 
 /// <summary>
-/// Property-based tests for the compute engine. The engine's parallel director/worker output is
+/// Property-based tests for the compute engine. The engine's parallel map/reduce output is
 /// checked against an independent reference implementation and against algebraic invariants
 /// (determinism, no mutation, locality, translation-independence) over randomly generated boards.
 /// </summary>

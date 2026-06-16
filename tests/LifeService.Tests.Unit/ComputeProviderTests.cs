@@ -10,7 +10,7 @@ using Microsoft.Extensions.Options;
 namespace LifeService.Tests.Unit;
 
 /// <summary>
-/// Unit tests for the deterministic Game of Life rules and the director/worker engine
+/// Unit tests for the deterministic Game of Life rules and the map/reduce engine
 /// (SYSTEM_SPECIFICATION.md §11 – still lifes, oscillators, spaceships, limits).
 /// </summary>
 public class ComputeProviderTests
