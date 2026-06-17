@@ -16,12 +16,21 @@ public sealed class InMemoryLifeStorageProvider : ILifeStorageProvider
         public ConcurrentDictionary<long, LifeState> States { get; } = new();
         public SolutionSummary? Summary { get; set; }
         public QuarantineInfo? Quarantine { get; set; }
+
+        /// <summary>Monotonic creation order, assigned once at board creation.</summary>
+        public long Sequence { get; init; }
+
+        /// <summary>When the board was created.</summary>
+        public DateTimeOffset CreatedAt { get; init; }
     }
 
     private readonly ConcurrentDictionary<BoardId, BoardRecord> _boards = new();
 
     // Content-addressing index: initial-state fingerprint -> board id, for idempotent uploads.
     private readonly ConcurrentDictionary<string, BoardId> _fingerprints = new();
+
+    // Monotonic counter giving every board a stable creation order (1, 2, 3, ...).
+    private long _sequence;
 
     public Task<BoardCreationResult> CreateBoardAsync(
         IReadOnlyCollection<LifeCell> initialState, CancellationToken ct)
@@ -42,7 +51,11 @@ public sealed class InMemoryLifeStorageProvider : ILifeStorageProvider
             return Task.FromResult(new BoardCreationResult(claimed, Created: false));
         }
 
-        var record = new BoardRecord();
+        var record = new BoardRecord
+        {
+            Sequence = Interlocked.Increment(ref _sequence),
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
         record.States[LifeStateLabel.Initial.Value] =
             new LifeState(id, LifeStateLabel.Initial, initialState);
         record.Summary = new SolutionSummary
@@ -84,27 +97,36 @@ public sealed class InMemoryLifeStorageProvider : ILifeStorageProvider
         return Task.FromResult<IReadOnlyList<LifeState>>(states);
     }
 
-    public Task<PagedResult<LifeState>> GetInitialStatesAsync(int page, int pageSize, CancellationToken ct)
+    public Task<PagedResult<StoredBoardState>> GetInitialStatesAsync(int page, int pageSize, CancellationToken ct)
     {
-        // The label-0 state of every board, ordered deterministically by board id.
-        var initialStates = _boards
-            .Where(kvp => kvp.Value.States.ContainsKey(LifeStateLabel.Initial.Value))
-            .OrderBy(kvp => kvp.Key.Value)
-            .Select(kvp => kvp.Value.States[LifeStateLabel.Initial.Value]);
-
-        var total = _boards.Count(kvp => kvp.Value.States.ContainsKey(LifeStateLabel.Initial.Value));
-
-        var items = initialStates
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
+        // The label-0 state of every board, ordered by monotonic creation sequence (oldest first).
+        var boards = _boards.Values
+            .Where(r => r.States.ContainsKey(LifeStateLabel.Initial.Value))
             .ToList();
 
-        return Task.FromResult(new PagedResult<LifeState>
+        var items = boards
+            .OrderBy(r => r.Sequence)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(r =>
+            {
+                var initial = r.States[LifeStateLabel.Initial.Value];
+                return new StoredBoardState
+                {
+                    BoardId = initial.BoardId,
+                    Label = initial.Label,
+                    ActiveCells = initial.ActiveCells,
+                    CreatedAt = r.CreatedAt,
+                };
+            })
+            .ToList();
+
+        return Task.FromResult(new PagedResult<StoredBoardState>
         {
             Items = items,
             Page = page,
             PageSize = pageSize,
-            TotalCount = total,
+            TotalCount = boards.Count,
         });
     }
 

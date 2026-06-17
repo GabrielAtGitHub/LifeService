@@ -132,15 +132,15 @@ public class LifeApiTests : IClassFixture<LifeApiFactory>
     }
 
     [Fact]
-    public async Task ListBoards_ReturnsFirstStateOfEachBoard_Paginated()
+    public async Task ListBoards_ReturnsFirstStateOfEachBoard_InCreationOrder_Paginated()
     {
         // Isolated host so the shared in-memory store from sibling tests doesn't skew the totals.
         var factory = _factory.WithWebHostBuilder(_ => { });
         var client = factory.CreateClient();
 
-        await UploadAsync(client, (1, 1));
-        await UploadAsync(client, (2, 2));
-        await UploadAsync(client, (3, 3));
+        var id1 = await UploadAsync(client, (1, 1));
+        var id2 = await UploadAsync(client, (2, 2));
+        var id3 = await UploadAsync(client, (3, 3));
 
         var first = await client.GetAsync("/api/life/boards?page=1&pageSize=2");
         first.EnsureSuccessStatusCode();
@@ -150,13 +150,16 @@ public class LifeApiTests : IClassFixture<LifeApiFactory>
         Assert.Equal(1, page1.GetProperty("page").GetInt32());
         Assert.Equal(2, page1.GetProperty("pageSize").GetInt32());
         var items = page1.GetProperty("items").EnumerateArray().ToList();
-        Assert.Equal(2, items.Count);
         Assert.All(items, s => Assert.Equal(0, s.GetProperty("label").GetInt64()));
+        Assert.All(items, s => Assert.True(s.TryGetProperty("createdAt", out _)));
+        // Boards come back in creation order.
+        Assert.Equal(new[] { id1, id2 }, items.Select(s => s.GetProperty("boardId").GetGuid()).ToArray());
 
         var second = await client.GetAsync("/api/life/boards?page=2&pageSize=2");
         second.EnsureSuccessStatusCode();
         var page2 = await second.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Single(page2.GetProperty("items").EnumerateArray());
+        var page2Items = page2.GetProperty("items").EnumerateArray().ToList();
+        Assert.Equal(new[] { id3 }, page2Items.Select(s => s.GetProperty("boardId").GetGuid()).ToArray());
     }
 
     [Fact]

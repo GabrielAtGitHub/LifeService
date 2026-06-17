@@ -31,11 +31,11 @@ public interface ILifeComputeService
         CancellationToken ct);
 
     /// <summary>
-    /// Lists the first state (label 0, the uploaded initial state) of every stored board, in a
-    /// deterministic order, one page at a time. Each item carries the usual board id, label and
-    /// active cells.
+    /// Lists the first state (label 0, the uploaded initial state) of every stored board in
+    /// creation order, one page at a time. Each item carries the usual board id, label and active
+    /// cells, plus the board's creation timestamp.
     /// </summary>
-    Task<PagedResult<LifeState>> ListInitialStatesAsync(int page, int pageSize, CancellationToken ct);
+    Task<PagedResult<StoredBoardState>> ListInitialStatesAsync(int page, int pageSize, CancellationToken ct);
 
     Task ClearQuarantineAsync(BoardId boardId, CancellationToken ct);
 }
@@ -85,10 +85,11 @@ public interface ILifeStorageProvider
         CancellationToken ct);
 
     /// <summary>
-    /// Returns a page of the initial state (label 0) of every stored board, ordered deterministically
-    /// by board id, along with the total board count. Used to enumerate stored results.
+    /// Returns a page of the initial state (label 0) of every stored board, ordered by the board's
+    /// monotonic creation sequence (oldest first), along with the total board count and each board's
+    /// creation timestamp. Used to enumerate stored results.
     /// </summary>
-    Task<PagedResult<LifeState>> GetInitialStatesAsync(int page, int pageSize, CancellationToken ct);
+    Task<PagedResult<StoredBoardState>> GetInitialStatesAsync(int page, int pageSize, CancellationToken ct);
 
     Task PersistStateAsync(LifeState state, CancellationToken ct);
 

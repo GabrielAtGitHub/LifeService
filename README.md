@@ -133,7 +133,7 @@ with no stack traces.
 | # | Method & route | Description | Success | Error codes |
 | --- | --- | --- | --- | --- |
 | 1 | `POST /api/life/boards` | Upload initial board (idempotent by content) | `201 Created` `{ boardId }`, or `200 OK` `{ boardId }` if an identical board already exists | `ActiveCellLimitExceeded` (422) |
-| 1b | `GET /api/life/boards?page=&pageSize=` | List the first state (label 0) of every stored board, paginated | `200` `{ items, page, pageSize, totalCount }` | `InvalidRange` (400), `StatesLimitExceeded` (422) |
+| 1b | `GET /api/life/boards?page=&pageSize=` | List the first state (label 0) of every stored board, in creation order, paginated | `200` `{ items, page, pageSize, totalCount }` (each item has `boardId, label, activeCells, createdAt`) | `InvalidRange` (400), `StatesLimitExceeded` (422) |
 | 2 | `POST /api/life/boards/{boardId}/next` | Advance one generation | `200` state | `BoardNotFound` (404), `BoardQuarantined` (409) |
 | 3 | `GET /api/life/boards/{boardId}/final` | Compute to steady state / limit | `200` summary | `BoardNotFound`, `BoardQuarantined` |
 | 4 | `POST /api/life/boards/{boardId}/next-sequence?n=` | Advance N generations | `200` states | `StatesLimitExceeded` (422) |
@@ -143,9 +143,10 @@ with no stack traces.
 `GET /health` exposes a liveness probe.
 
 **Listing stored boards.** `GET /api/life/boards` returns one record per stored board — its **first**
-state (label 0, the uploaded initial state) with the usual `boardId`, `label` and `activeCells` —
-ordered deterministically by board id and paginated via `page` (1-based, default 1) and `pageSize`
-(default 50, capped at `MaxStatesPerRequest`). The response includes `totalCount` for paging.
+state (label 0, the uploaded initial state) with `boardId`, `label`, `activeCells` and `createdAt` —
+in **creation order** (oldest first), backed by a monotonic per-board creation sequence. Paginate via
+`page` (1-based, default 1) and `pageSize` (default 50, capped at `MaxStatesPerRequest`); the response
+includes `totalCount` for paging.
 
 **Idempotent uploads.** Boards are content-addressed by a fingerprint of their exact initial cell
 set (`BoardFingerprint` — order-independent and duplicate-free, but not translation-invariant).

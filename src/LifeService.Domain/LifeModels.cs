@@ -23,6 +23,23 @@ public sealed record LifeState
 }
 
 /// <summary>
+/// A stored board as surfaced by the listing endpoint: its first state (label 0, the uploaded
+/// initial state) together with the board's creation timestamp. Boards are returned in creation
+/// order (see <see cref="Abstractions.ILifeStorageProvider.GetInitialStatesAsync"/>).
+/// </summary>
+public sealed record StoredBoardState
+{
+    public required BoardId BoardId { get; init; }
+
+    public required LifeStateLabel Label { get; init; }
+
+    public required IReadOnlyCollection<LifeCell> ActiveCells { get; init; }
+
+    /// <summary>When the board was created (its initial state uploaded).</summary>
+    public required DateTimeOffset CreatedAt { get; init; }
+}
+
+/// <summary>
 /// Outcome of an initial-state upload.
 /// </summary>
 /// <param name="BoardId">The board the initial state belongs to.</param>

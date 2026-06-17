@@ -143,7 +143,7 @@ public class LifeComputeServiceTests
     }
 
     [Fact]
-    public async Task ListInitialStates_ReturnsLabelZeroOfEachBoard_Paginated()
+    public async Task ListInitialStates_ReturnsLabelZeroOfEachBoard_InCreationOrder_Paginated()
     {
         var service = CreateService();
         var a = (await service.UploadInitialStateAsync([new(0, 0)], CancellationToken.None)).BoardId;
@@ -157,17 +157,22 @@ public class LifeComputeServiceTests
         var page2 = await service.ListInitialStatesAsync(2, 2, CancellationToken.None);
 
         Assert.Equal(3, page1.TotalCount);
-        Assert.Equal(2, page1.Items.Count);
-        Assert.Single(page2.Items);
         Assert.All(page1.Items, s => Assert.Equal(0, s.Label.Value));
         Assert.All(page2.Items, s => Assert.Equal(0, s.Label.Value));
 
-        // The two pages together cover every board exactly once.
-        var seen = page1.Items.Concat(page2.Items).Select(s => s.BoardId).ToHashSet();
-        Assert.Equal(new HashSet<BoardId> { a, b, c }, seen);
+        // Boards are returned in creation order, split across pages.
+        Assert.Equal([a, b], page1.Items.Select(s => s.BoardId).ToArray());
+        Assert.Equal([c], page2.Items.Select(s => s.BoardId).ToArray());
+
+        // Creation timestamps are non-decreasing in listing order.
+        var all = page1.Items.Concat(page2.Items).ToList();
+        for (var i = 1; i < all.Count; i++)
+        {
+            Assert.True(all[i].CreatedAt >= all[i - 1].CreatedAt);
+        }
 
         // The label-0 cells of an advanced board are unchanged (the uploaded state).
-        var first = page1.Items.Concat(page2.Items).Single(s => s.BoardId == a);
+        var first = all.Single(s => s.BoardId == a);
         Assert.Equal([new LifeCell(0, 0)], first.ActiveCells);
     }
 
