@@ -94,6 +94,11 @@ curl -s -X POST http://localhost:5062/api/life/boards \
 { "boardId": "3fa85f64-5717-4562-b3fc-2c963f66afa6" }
 ```
 
+> **Idempotent upload.** Uploads are content-addressed by the exact set of cells. Re-posting the same
+> body returns the *same* `boardId` with `200 OK` instead of `201 Created` (no duplicate board is
+> created), and all subsequent calls operate on that board's current state set. A translated copy of
+> the pattern is treated as a different board.
+
 Capture the id for the next calls:
 
 ```bash

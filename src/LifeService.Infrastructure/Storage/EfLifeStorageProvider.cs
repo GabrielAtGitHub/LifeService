@@ -17,11 +17,21 @@ public sealed class EfLifeStorageProvider : ILifeStorageProvider
 
     public EfLifeStorageProvider(LifeDbContext db) => _db = db;
 
-    public async Task<BoardId> CreateBoardAsync(
+    public async Task<BoardCreationResult> CreateBoardAsync(
         IReadOnlyCollection<LifeCell> initialState, CancellationToken ct)
     {
-        var id = BoardId.New();
+        var fingerprint = BoardFingerprint.Compute(initialState);
 
+        // Idempotent upload: return the existing board if the same initial state was uploaded before.
+        var existing = await _db.Summaries.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Fingerprint == fingerprint, ct)
+            .ConfigureAwait(false);
+        if (existing is not null)
+        {
+            return new BoardCreationResult(new BoardId(existing.BoardId), Created: false);
+        }
+
+        var id = BoardId.New();
         _db.States.Add(new StateEntity
         {
             BoardId = id.Value,
@@ -33,10 +43,29 @@ public sealed class EfLifeStorageProvider : ILifeStorageProvider
             BoardId = id.Value,
             Status = (int)SolutionStatus.Incomplete,
             LastComputedLabel = LifeStateLabel.Initial.Value,
+            Fingerprint = fingerprint,
         });
 
-        await _db.SaveChangesAsync(ct).ConfigureAwait(false);
-        return id;
+        try
+        {
+            await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        catch (DbUpdateException)
+        {
+            // A concurrent upload of the same state won the unique-fingerprint race; defer to it.
+            _db.ChangeTracker.Clear();
+            var winner = await _db.Summaries.AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Fingerprint == fingerprint, ct)
+                .ConfigureAwait(false);
+            if (winner is not null)
+            {
+                return new BoardCreationResult(new BoardId(winner.BoardId), Created: false);
+            }
+
+            throw;
+        }
+
+        return new BoardCreationResult(id, Created: true);
     }
 
     public async Task<LifeState?> GetStateAsync(BoardId boardId, LifeStateLabel label, CancellationToken ct)

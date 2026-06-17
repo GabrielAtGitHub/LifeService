@@ -38,7 +38,7 @@ public sealed class LifeComputeService : ILifeComputeService
         _logger = logger;
     }
 
-    public async Task<BoardId> UploadInitialStateAsync(
+    public async Task<BoardCreationResult> UploadInitialStateAsync(
         IReadOnlyCollection<LifeCell> activeCells, CancellationToken ct)
     {
         if (activeCells.Count > _limits.MaxActiveCells)
@@ -50,14 +50,27 @@ public sealed class LifeComputeService : ILifeComputeService
         var distinct = activeCells.Distinct().ToList();
 
         var sw = Stopwatch.StartNew();
-        var boardId = await _storage.CreateBoardAsync(distinct, ct).ConfigureAwait(false);
-        using (BeginScope(boardId, "UploadInitialState"))
+        // Idempotent by content: an identical initial cell set returns the previously created board
+        // id instead of creating a new board. Subsequent operations act on that state set.
+        var result = await _storage.CreateBoardAsync(distinct, ct).ConfigureAwait(false);
+
+        using (BeginScope(result.BoardId, "UploadInitialState"))
         {
-            _metrics.ActiveCells.Add(distinct.Count);
-            LogSuccess(boardId, "UploadInitialState", sw.ElapsedMilliseconds, distinct.Count);
+            if (result.Created)
+            {
+                _metrics.ActiveCells.Add(distinct.Count);
+                LogSuccess(result.BoardId, "UploadInitialState", sw.ElapsedMilliseconds, distinct.Count);
+            }
+            else
+            {
+                // Duplicate upload: do not double-count active cells; record the dedup outcome.
+                _logger.LogInformation(
+                    "UploadInitialState for board {BoardId} completed with status {Status} in {DurationMs}ms (activeCells: {ActiveCells})",
+                    result.BoardId, "deduplicated", sw.ElapsedMilliseconds, distinct.Count);
+            }
         }
 
-        return boardId;
+        return result;
     }
 
     public Task<LifeState> GetNextStateAsync(BoardId boardId, CancellationToken ct) =>

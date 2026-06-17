@@ -87,6 +87,16 @@ LifeService.Tests.Integration
 - `LifeStateLabel Label`
 - `IReadOnlyCollection<LifeCell> ActiveCells`
 
+### `BoardCreationResult`
+- `BoardId BoardId`
+- `bool Created` — `false` when an existing board with an identical initial cell set was returned
+  (idempotent upload).
+
+### `BoardFingerprint` (static)
+- `string Compute(IReadOnlyCollection<LifeCell>)` — deterministic, order-independent, duplicate-free
+  key over the **exact** live coordinates. It is **not** translation-invariant: translated boards are
+  distinct state sets. Backs content-addressed board creation.
+
 ### `SolutionStatus`
 - `StableSteadyState`
 - `OscillationSteadyState`
@@ -114,7 +124,9 @@ LifeService.Tests.Integration
 ```csharp
 public interface ILifeComputeService
 {
-    Task<BoardId> UploadInitialStateAsync(
+    // Idempotent by content: an identical initial cell set returns the existing board id
+    // (BoardCreationResult.Created == false) without creating a new board.
+    Task<BoardCreationResult> UploadInitialStateAsync(
         IReadOnlyCollection<LifeCell> activeCells,
         CancellationToken ct);
 
@@ -162,7 +174,9 @@ public interface ILifeComputeProvider
 ```csharp
 public interface ILifeStorageProvider
 {
-    Task<BoardId> CreateBoardAsync(
+    // Content-addressed: returns the existing board when an identical initial cell set
+    // (per BoardFingerprint) was already created, so uploads are idempotent.
+    Task<BoardCreationResult> CreateBoardAsync(
         IReadOnlyCollection<LifeCell> initialState,
         CancellationToken ct);
 
@@ -246,6 +260,9 @@ public sealed class LifeStorageOptions
 Endpoints include:
 
 1. **Upload new board** — `POST /api/life/boards`
+   - **Idempotent by content.** A new board returns `201 Created`; re-uploading an identical cell
+     set returns the previously created board id with `200 OK` (no new board, no double-counting of
+     `active_cells`). Subsequent operations act on that board's current state set.
 2. **Get next state** — `POST /api/life/boards/{boardId}/next`
 3. **Get final computed state** — `GET /api/life/boards/{boardId}/final`
 4. **Get next N states** — `POST /api/life/boards/{boardId}/next-sequence`

@@ -9,7 +9,7 @@ Application layer depends only on this interface, so storage technology is a dep
 ```csharp
 public interface ILifeStorageProvider
 {
-    Task<BoardId> CreateBoardAsync(IReadOnlyCollection<LifeCell> initialState, CancellationToken ct);
+    Task<BoardCreationResult> CreateBoardAsync(IReadOnlyCollection<LifeCell> initialState, CancellationToken ct);
     Task<LifeState?> GetStateAsync(BoardId boardId, LifeStateLabel label, CancellationToken ct);
     Task<IReadOnlyList<LifeState>> GetStatesRangeAsync(BoardId boardId, LifeStateLabel from, LifeStateLabel to, CancellationToken ct);
     Task PersistStateAsync(LifeState state, CancellationToken ct);
@@ -26,6 +26,17 @@ Every write is an **upsert** keyed by its natural identity (`BoardId` + `LifeSta
 `BoardId` for summaries and quarantine records). Re-persisting the same state or summary is a no-op
 in effect, satisfying the idempotency invariant.
 
+### Content-addressed board creation
+`CreateBoardAsync` is idempotent by content. It computes a `BoardFingerprint` over the initial cell
+set — a deterministic, order-independent, duplicate-free key of the **exact** coordinates (not
+translation-invariant) — and returns the existing board when that fingerprint is already present.
+The result's `Created` flag distinguishes a freshly created board (`true`) from a returned duplicate
+(`false`), which the API maps to `201 Created` vs `200 OK`. Providers enforce this differently:
+
+- **In-memory:** a `ConcurrentDictionary<string, BoardId>` fingerprint index, claimed atomically.
+- **EF Core:** a **unique** `Fingerprint` column on `Summaries`; a lost insert race
+  (`DbUpdateException`) falls back to reading the winning board.
+
 ### Conceptual data model
 
 ```mermaid
@@ -35,7 +46,7 @@ erDiagram
     BOARD ||--o| QUARANTINE : may-have
     BOARD { guid BoardId }
     STATE { guid BoardId  long Label  blob ActiveCells }
-    SUMMARY { guid BoardId  int Status  long LastComputedLabel  long OscillationPeriodStart  int OscillationPeriodLength }
+    SUMMARY { guid BoardId  int Status  long LastComputedLabel  long OscillationPeriodStart  int OscillationPeriodLength  string Fingerprint }
     QUARANTINE { guid BoardId  datetime QuarantinedAt  string Reason  int RetryCount }
 ```
 
@@ -59,7 +70,9 @@ production relational engine. The schema is created at startup via `EnsureCreate
 { "Life": { "Storage": { "Provider": "Sqlite", "SqliteConnectionString": "Data Source=life.db" } } }
 ```
 
-EF tables: `States` (PK `BoardId`+`Label`), `Summaries` (PK `BoardId`), `Quarantines` (PK `BoardId`).
+EF tables: `States` (PK `BoardId`+`Label`), `Summaries` (PK `BoardId`, **unique** `Fingerprint`),
+`Quarantines` (PK `BoardId`). Because the schema is created with `EnsureCreatedAsync` (no
+migrations), delete an existing `life.db` to pick up schema changes such as the `Fingerprint` column.
 
 ### Production
 Swap the registration in `AddLifeInfrastructure` for the chosen backend:

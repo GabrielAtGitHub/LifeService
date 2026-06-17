@@ -132,7 +132,7 @@ with no stack traces.
 
 | # | Method & route | Description | Success | Error codes |
 | --- | --- | --- | --- | --- |
-| 1 | `POST /api/life/boards` | Upload initial board | `201 Created` `{ boardId }` | `ActiveCellLimitExceeded` (422) |
+| 1 | `POST /api/life/boards` | Upload initial board (idempotent by content) | `201 Created` `{ boardId }`, or `200 OK` `{ boardId }` if an identical board already exists | `ActiveCellLimitExceeded` (422) |
 | 2 | `POST /api/life/boards/{boardId}/next` | Advance one generation | `200` state | `BoardNotFound` (404), `BoardQuarantined` (409) |
 | 3 | `GET /api/life/boards/{boardId}/final` | Compute to steady state / limit | `200` summary | `BoardNotFound`, `BoardQuarantined` |
 | 4 | `POST /api/life/boards/{boardId}/next-sequence?n=` | Advance N generations | `200` states | `StatesLimitExceeded` (422) |
@@ -140,6 +140,12 @@ with no stack traces.
 | 6 | `GET` / `DELETE /api/life/boards/{boardId}/quarantine` | Inspect / clear quarantine | `200`/`204` | — |
 
 `GET /health` exposes a liveness probe.
+
+**Idempotent uploads.** Boards are content-addressed by a fingerprint of their exact initial cell
+set (`BoardFingerprint` — order-independent and duplicate-free, but not translation-invariant).
+Re-uploading the same cells returns the existing board id (`200 OK`) instead of creating a duplicate;
+a translated copy is treated as a distinct board. All later operations then act on that board's
+current state set.
 
 ---
 
@@ -174,6 +180,7 @@ Full reference in [`docs/observability.md`](docs/observability.md).
 | Input state is never mutated | `LifeState` copies its cells defensively; engine reads a `HashSet` snapshot |
 | Quarantined boards are logged and counted | `quarantined_boards` counter + structured error/warning logs |
 | Persistence operations are idempotent | Upsert semantics in the storage provider |
+| Board creation is idempotent by content | Boards keyed by `BoardFingerprint`; identical uploads return the existing id (in-memory index / unique fingerprint column) |
 | Observability present in all compute operations | Activity span + metrics + scoped logs per operation |
 
 **Failure modes:** invalid/oversized input → `ActiveCellLimitExceeded` / `StatesLimitExceeded`;
