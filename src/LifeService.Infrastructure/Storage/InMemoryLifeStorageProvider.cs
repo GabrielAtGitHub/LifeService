@@ -20,21 +20,41 @@ public sealed class InMemoryLifeStorageProvider : ILifeStorageProvider
 
     private readonly ConcurrentDictionary<BoardId, BoardRecord> _boards = new();
 
-    public Task<BoardId> CreateBoardAsync(
+    // Content-addressing index: initial-state fingerprint -> board id, for idempotent uploads.
+    private readonly ConcurrentDictionary<string, BoardId> _fingerprints = new();
+
+    public Task<BoardCreationResult> CreateBoardAsync(
         IReadOnlyCollection<LifeCell> initialState, CancellationToken ct)
     {
+        var fingerprint = BoardFingerprint.Compute(initialState);
+
+        // Fast path: an identical board already exists -> return its id (idempotent upload).
+        if (_fingerprints.TryGetValue(fingerprint, out var existing))
+        {
+            return Task.FromResult(new BoardCreationResult(existing, Created: false));
+        }
+
+        // Claim the fingerprint atomically; if another thread won the race, defer to it.
         var id = BoardId.New();
+        var claimed = _fingerprints.GetOrAdd(fingerprint, id);
+        if (claimed != id)
+        {
+            return Task.FromResult(new BoardCreationResult(claimed, Created: false));
+        }
+
         var record = new BoardRecord();
-        var initial = new LifeState(id, LifeStateLabel.Initial, initialState);
-        record.States[LifeStateLabel.Initial.Value] = initial;
+        record.States[LifeStateLabel.Initial.Value] =
+            new LifeState(id, LifeStateLabel.Initial, initialState);
         record.Summary = new SolutionSummary
         {
             BoardId = id,
             Status = SolutionStatus.Incomplete,
             LastComputedLabel = LifeStateLabel.Initial,
         };
+        // Publish the record only after the fingerprint is claimed so the index never points at a
+        // half-built board.
         _boards[id] = record;
-        return Task.FromResult(id);
+        return Task.FromResult(new BoardCreationResult(id, Created: true));
     }
 
     public Task<LifeState?> GetStateAsync(BoardId boardId, LifeStateLabel label, CancellationToken ct)

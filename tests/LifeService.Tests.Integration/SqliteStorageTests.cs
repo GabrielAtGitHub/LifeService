@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
@@ -49,6 +50,29 @@ public sealed class SqliteStorageTests : IDisposable
         final.EnsureSuccessStatusCode();
         Assert.Equal("OscillationSteadyState",
             (await final.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task Upload_DuplicateState_ReturnsSameBoardAcrossRequests()
+    {
+        var client = _factory.CreateClient();
+        var seed = new
+        {
+            cells = new[] { new { x = 1, y = 0 }, new { x = 1, y = 1 }, new { x = 1, y = 2 } },
+        };
+
+        var first = await client.PostAsJsonAsync("/api/life/boards", seed);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        var firstId = (await first.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("boardId").GetGuid();
+
+        // A second request with the same state hits the unique fingerprint and returns 200 + same id.
+        var second = await client.PostAsJsonAsync("/api/life/boards", seed);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        var secondId = (await second.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("boardId").GetGuid();
+
+        Assert.Equal(firstId, secondId);
     }
 
     public void Dispose()

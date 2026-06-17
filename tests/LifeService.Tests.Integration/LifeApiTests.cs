@@ -68,7 +68,9 @@ public class LifeApiTests : IClassFixture<LifeApiFactory>
     public async Task GetFinal_ForBlinker_ReportsOscillation()
     {
         var client = _factory.CreateClient();
-        var id = await UploadAsync(client, (1, 0), (1, 1), (1, 2));
+        // A distinct blinker location: the in-memory store is shared across this class's tests and
+        // uploads are now idempotent by content, so each test that mutates a board uses its own seed.
+        var id = await UploadAsync(client, (10, 0), (10, 1), (10, 2));
 
         var response = await client.GetAsync($"/api/life/boards/{id}/final");
         response.EnsureSuccessStatusCode();
@@ -107,6 +109,26 @@ public class LifeApiTests : IClassFixture<LifeApiFactory>
             "/api/life/boards", Board((0, 0), (1, 1), (2, 2)));
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UploadDuplicate_ReturnsExistingBoard_With200()
+    {
+        var client = _factory.CreateClient();
+        var seed = Board((30, 30), (31, 31), (32, 32));
+
+        var first = await client.PostAsJsonAsync("/api/life/boards", seed);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        var firstId = (await first.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("boardId").GetGuid();
+
+        // Re-uploading the identical state returns the existing board id with 200 OK (idempotent).
+        var second = await client.PostAsJsonAsync("/api/life/boards", seed);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        var secondId = (await second.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("boardId").GetGuid();
+
+        Assert.Equal(firstId, secondId);
     }
 
     [Fact]

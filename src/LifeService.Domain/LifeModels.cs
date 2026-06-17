@@ -23,6 +23,16 @@ public sealed record LifeState
 }
 
 /// <summary>
+/// Outcome of an initial-state upload.
+/// </summary>
+/// <param name="BoardId">The board the initial state belongs to.</param>
+/// <param name="Created">
+/// <c>true</c> when a new board was created; <c>false</c> when an existing board with an identical
+/// initial cell set was found and its id returned (idempotent upload — SYSTEM_SPECIFICATION.md §5.3).
+/// </param>
+public readonly record struct BoardCreationResult(BoardId BoardId, bool Created);
+
+/// <summary>
 /// Classification of a board's long-term behaviour.
 /// </summary>
 public enum SolutionStatus

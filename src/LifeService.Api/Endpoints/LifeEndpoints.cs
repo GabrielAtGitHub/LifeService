@@ -13,12 +13,15 @@ public static class LifeEndpoints
     {
         var group = app.MapGroup("/api/life/boards").WithTags("Life");
 
-        // 1. Upload new board.
+        // 1. Upload new board. Idempotent by content: re-uploading an identical cell set returns
+        // the existing board (200 OK) rather than creating a new one (201 Created).
         group.MapPost("/", async (
             UploadBoardRequest request, ILifeComputeService service, CancellationToken ct) =>
         {
-            var boardId = await service.UploadInitialStateAsync(request.Cells.ToDomain(), ct);
-            return Results.Created($"/api/life/boards/{boardId.Value}", new { boardId = boardId.Value });
+            var result = await service.UploadInitialStateAsync(request.Cells.ToDomain(), ct);
+            var location = $"/api/life/boards/{result.BoardId.Value}";
+            var body = new { boardId = result.BoardId.Value };
+            return result.Created ? Results.Created(location, body) : Results.Ok(body);
         });
 
         // 2. Get next state.

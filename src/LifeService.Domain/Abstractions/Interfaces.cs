@@ -5,7 +5,13 @@ namespace LifeService.Domain.Abstractions;
 /// </summary>
 public interface ILifeComputeService
 {
-    Task<BoardId> UploadInitialStateAsync(
+    /// <summary>
+    /// Uploads an initial board state. Idempotent by content: if a board with an identical set of
+    /// live cells already exists, its id is returned without creating a new board
+    /// (<see cref="BoardCreationResult.Created"/> is then <c>false</c>). All subsequent operations
+    /// act on that board's state set.
+    /// </summary>
+    Task<BoardCreationResult> UploadInitialStateAsync(
         IReadOnlyCollection<LifeCell> activeCells,
         CancellationToken ct);
 
@@ -53,7 +59,13 @@ public interface ILifeComputeProvider
 /// </summary>
 public interface ILifeStorageProvider
 {
-    Task<BoardId> CreateBoardAsync(
+    /// <summary>
+    /// Creates a board from its initial state, or returns the existing board if one with an
+    /// identical cell set (per <see cref="LifeService.Domain.BoardFingerprint"/>) was already
+    /// created. This makes uploads idempotent by content; <see cref="BoardCreationResult.Created"/>
+    /// indicates whether a new board was persisted.
+    /// </summary>
+    Task<BoardCreationResult> CreateBoardAsync(
         IReadOnlyCollection<LifeCell> initialState,
         CancellationToken ct);
 
