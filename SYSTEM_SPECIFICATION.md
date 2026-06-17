@@ -1,17 +1,6 @@
-﻿Absolutely, Gabriel — here is your **polished, production‑grade `SYSTEM_SPECIFICATION.md` as a single, clean file**, ready to drop directly into your GitHub repository.
+﻿# SYSTEM_SPECIFICATION.md
 
-It is fully rewritten for clarity, structure, and long‑term maintainability, while preserving every architectural invariant and behavioral contract from your original document.
-
-No instructions. No meta text.  
-Just the **final specification file**.
-
----
-
-# ⭐ **SYSTEM_SPECIFICATION.md (Final Single‑File Version)**
-
-```markdown
-# SYSTEM_SPECIFICATION.md  
-LifeService — Conway’s Game of Life System Specification
+LifeService — Conway's Game of Life System Specification
 
 This document defines the authoritative system blueprint for the LifeService project.
 It describes the domain model, architecture, compute design, persistence model, API
@@ -368,10 +357,5 @@ Endpoints include:
 6. Add configuration + DI  
 7. Write unit + integration tests  
 8. Add Dockerfile + deployment notes  
-
----
-
-# End of SYSTEM_SPECIFICATION.md
-```
 
 ---
