@@ -13,7 +13,8 @@
       "name": "1. Health check",
       "event": [
         { "listen": "test", "script": { "type": "text/javascript", "exec": [
-          "pm.test('200 OK', () => pm.response.to.have.status(200));"
+          "pm.test('200 OK', () => pm.response.to.have.status(200));",
+          "console.log('1. Health check ->', pm.response.text());"
         ] } }
       ],
       "request": {
@@ -26,7 +27,8 @@
       "event": [
         { "listen": "test", "script": { "type": "text/javascript", "exec": [
           "pm.test('201 Created', () => pm.response.to.have.status(201));",
-          "pm.collectionVariables.set('boardId', pm.response.json().boardId);"
+          "pm.collectionVariables.set('boardId', pm.response.json().boardId);",
+          "console.log('2. Upload board ->', JSON.stringify(pm.response.json(), null, 2));"
         ] } }
       ],
       "request": {
@@ -44,7 +46,8 @@
       "name": "3. Advance one generation",
       "event": [
         { "listen": "test", "script": { "type": "text/javascript", "exec": [
-          "pm.test('200 OK', () => pm.response.to.have.status(200));"
+          "pm.test('200 OK', () => pm.response.to.have.status(200));",
+          "console.log('3. Advance one generation ->', JSON.stringify(pm.response.json(), null, 2));"
         ] } }
       ],
       "request": {
@@ -57,7 +60,8 @@
       "name": "4. Advance next four generations",
       "event": [
         { "listen": "test", "script": { "type": "text/javascript", "exec": [
-          "pm.test('200 OK', () => pm.response.to.have.status(200));"
+          "pm.test('200 OK', () => pm.response.to.have.status(200));",
+          "console.log('4. Advance next four generations ->', JSON.stringify(pm.response.json(), null, 2));"
         ] } }
       ],
       "request": {
@@ -71,14 +75,15 @@
       "name": "5. States in range [0,2]",
       "event": [
         { "listen": "test", "script": { "type": "text/javascript", "exec": [
-          "pm.test('200 OK', () => pm.response.to.have.status(200));"
+          "pm.test('200 OK', () => pm.response.to.have.status(200));",
+          "console.log('5. States in range ->', JSON.stringify(pm.response.json(), null, 2));"
         ] } }
       ],
       "request": {
         "method": "GET",
-        "url": { "raw": "{{host}}/api/life/boards/{{boardId}}/states?from=0&to=2", "host": ["{{host}}"],
+        "url": { "raw": "{{host}}/api/life/boards/{{boardId}}/states?from=0&to=20", "host": ["{{host}}"],
           "path": ["api","life","boards","{{boardId}}","states"],
-          "query": [ { "key": "from", "value": "0" }, { "key": "to", "value": "2" } ] }
+          "query": [ { "key": "from", "value": "0" }, { "key": "to", "value": "20" } ] }
       }
     },
     {
@@ -86,7 +91,8 @@
       "event": [
         { "listen": "test", "script": { "type": "text/javascript", "exec": [
           "pm.test('200 OK', () => pm.response.to.have.status(200));",
-          "pm.test('oscillation period 2', () => pm.expect(pm.response.json().oscillationPeriodLength).to.eql(2));"
+          "pm.test('oscillation period 2', () => pm.expect(pm.response.json().oscillationPeriodLength).to.eql(2));",
+          "console.log('6. Compute final ->', JSON.stringify(pm.response.json(), null, 2));"
         ] } }
       ],
       "request": {
@@ -99,7 +105,8 @@
       "name": "7. Inspect quarantine",
       "event": [
         { "listen": "test", "script": { "type": "text/javascript", "exec": [
-          "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+          "pm.test('204 No Content', () => pm.response.to.have.status(204));",
+          "console.log('7. Inspect quarantine -> HTTP', pm.response.code, pm.response.status);"
         ] } }
       ],
       "request": {
@@ -112,7 +119,8 @@
       "name": "8. Clear quarantine",
       "event": [
         { "listen": "test", "script": { "type": "text/javascript", "exec": [
-          "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+          "pm.test('204 No Content', () => pm.response.to.have.status(204));",
+          "console.log('8. Clear quarantine -> HTTP', pm.response.code, pm.response.status);"
         ] } }
       ],
       "request": {
@@ -126,7 +134,8 @@
       "event": [
         { "listen": "test", "script": { "type": "text/javascript", "exec": [
           "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
-          "pm.test('BoardNotFound', () => pm.expect(pm.response.json().code).to.eql('BoardNotFound'));"
+          "pm.test('BoardNotFound', () => pm.expect(pm.response.json().code).to.eql('BoardNotFound'));",
+          "console.log('9. Unknown board ->', JSON.stringify(pm.response.json(), null, 2));"
         ] } }
       ],
       "request": {
