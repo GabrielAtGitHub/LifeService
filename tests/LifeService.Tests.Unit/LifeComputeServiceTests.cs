@@ -143,6 +143,70 @@ public class LifeComputeServiceTests
     }
 
     [Fact]
+    public async Task ListInitialStates_ReturnsLabelZeroOfEachBoard_Paginated()
+    {
+        var service = CreateService();
+        var a = (await service.UploadInitialStateAsync([new(0, 0)], CancellationToken.None)).BoardId;
+        var b = (await service.UploadInitialStateAsync([new(5, 5)], CancellationToken.None)).BoardId;
+        var c = (await service.UploadInitialStateAsync([new(9, 9)], CancellationToken.None)).BoardId;
+
+        // Advance one board: listing must still return its *first* state (label 0), not the latest.
+        await service.GetNextStateAsync(a, CancellationToken.None);
+
+        var page1 = await service.ListInitialStatesAsync(1, 2, CancellationToken.None);
+        var page2 = await service.ListInitialStatesAsync(2, 2, CancellationToken.None);
+
+        Assert.Equal(3, page1.TotalCount);
+        Assert.Equal(2, page1.Items.Count);
+        Assert.Single(page2.Items);
+        Assert.All(page1.Items, s => Assert.Equal(0, s.Label.Value));
+        Assert.All(page2.Items, s => Assert.Equal(0, s.Label.Value));
+
+        // The two pages together cover every board exactly once.
+        var seen = page1.Items.Concat(page2.Items).Select(s => s.BoardId).ToHashSet();
+        Assert.Equal(new HashSet<BoardId> { a, b, c }, seen);
+
+        // The label-0 cells of an advanced board are unchanged (the uploaded state).
+        var first = page1.Items.Concat(page2.Items).Single(s => s.BoardId == a);
+        Assert.Equal([new LifeCell(0, 0)], first.ActiveCells);
+    }
+
+    [Fact]
+    public async Task ListInitialStates_BeyondLastPage_ReturnsEmpty()
+    {
+        var service = CreateService();
+        await service.UploadInitialStateAsync([new(0, 0)], CancellationToken.None);
+
+        var page = await service.ListInitialStatesAsync(5, 10, CancellationToken.None);
+
+        Assert.Empty(page.Items);
+        Assert.Equal(1, page.TotalCount);
+    }
+
+    [Theory]
+    [InlineData(0, 10)]
+    [InlineData(1, 0)]
+    [InlineData(-1, 10)]
+    public async Task ListInitialStates_InvalidPagination_Throws(int page, int pageSize)
+    {
+        var service = CreateService();
+
+        var ex = await Assert.ThrowsAsync<LifeException>(() =>
+            service.ListInitialStatesAsync(page, pageSize, CancellationToken.None));
+        Assert.Equal(LifeErrorCode.InvalidRange, ex.Code);
+    }
+
+    [Fact]
+    public async Task ListInitialStates_PageSizeBeyondLimit_Throws()
+    {
+        var service = CreateService(limits: new LifeLimitsOptions { MaxStatesPerRequest = 5 });
+
+        var ex = await Assert.ThrowsAsync<LifeException>(() =>
+            service.ListInitialStatesAsync(1, 6, CancellationToken.None));
+        Assert.Equal(LifeErrorCode.StatesLimitExceeded, ex.Code);
+    }
+
+    [Fact]
     public async Task GetNext_OnUnknownBoard_ThrowsBoardNotFound()
     {
         var service = CreateService();

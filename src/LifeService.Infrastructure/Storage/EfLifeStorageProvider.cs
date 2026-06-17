@@ -89,6 +89,30 @@ public sealed class EfLifeStorageProvider : ILifeStorageProvider
         return entities.Select(ToState).ToList();
     }
 
+    public async Task<PagedResult<LifeState>> GetInitialStatesAsync(int page, int pageSize, CancellationToken ct)
+    {
+        // One label-0 row exists per board; order by board id for stable pagination.
+        var query = _db.States.AsNoTracking()
+            .Where(s => s.Label == LifeStateLabel.Initial.Value)
+            .OrderBy(s => s.BoardId);
+
+        var total = await query.LongCountAsync(ct).ConfigureAwait(false);
+
+        var entities = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        return new PagedResult<LifeState>
+        {
+            Items = entities.Select(ToState).ToList(),
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = total,
+        };
+    }
+
     public async Task PersistStateAsync(LifeState state, CancellationToken ct)
     {
         var existing = await _db.States

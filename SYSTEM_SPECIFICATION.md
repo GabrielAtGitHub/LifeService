@@ -86,6 +86,12 @@ LifeService.Tests.Integration
   key over the **exact** live coordinates. It is **not** translation-invariant: translated boards are
   distinct state sets. Backs content-addressed board creation.
 
+### `PagedResult<T>`
+- `IReadOnlyList<T> Items`
+- `int Page` — 1-based page number
+- `int PageSize`
+- `long TotalCount` — total items across all pages
+
 ### `SolutionStatus`
 - `StableSteadyState`
 - `OscillationSteadyState`
@@ -134,6 +140,9 @@ public interface ILifeComputeService
         long toLabel,
         CancellationToken ct);
 
+    // First state (label 0) of every stored board, ordered by board id, paginated.
+    Task<PagedResult<LifeState>> ListInitialStatesAsync(int page, int pageSize, CancellationToken ct);
+
     Task ClearQuarantineAsync(BoardId boardId, CancellationToken ct);
 }
 ```
@@ -176,6 +185,9 @@ public interface ILifeStorageProvider
         LifeStateLabel from,
         LifeStateLabel to,
         CancellationToken ct);
+
+    // Page of the label-0 state of every board, ordered by board id, with the total count.
+    Task<PagedResult<LifeState>> GetInitialStatesAsync(int page, int pageSize, CancellationToken ct);
 
     Task PersistStateAsync(LifeState state, CancellationToken ct);
 
@@ -252,6 +264,12 @@ Endpoints include:
    - **Idempotent by content.** A new board returns `201 Created`; re-uploading an identical cell
      set returns the previously created board id with `200 OK` (no new board, no double-counting of
      `active_cells`). Subsequent operations act on that board's current state set.
+1b. **List boards (first state, paginated)** — `GET /api/life/boards?page=&pageSize=`
+   - Returns one record per stored board — its **first** state (label 0) with `boardId`, `label`
+     and `activeCells` — ordered deterministically by board id. `page` is 1-based (default 1);
+     `pageSize` defaults to 50 and is capped at `MaxStatesPerRequest`. The response carries
+     `{ items, page, pageSize, totalCount }`. Invalid paging → `InvalidRange` (400); oversized
+     `pageSize` → `StatesLimitExceeded` (422).
 2. **Get next state** — `POST /api/life/boards/{boardId}/next`
 3. **Get final computed state** — `GET /api/life/boards/{boardId}/final`
 4. **Get next N states** — `POST /api/life/boards/{boardId}/next-sequence`

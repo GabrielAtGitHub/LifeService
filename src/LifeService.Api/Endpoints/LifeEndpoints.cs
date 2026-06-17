@@ -24,6 +24,14 @@ public static class LifeEndpoints
             return result.Created ? Results.Created(location, body) : Results.Ok(body);
         });
 
+        // 1b. List the first state (label 0) of every stored board, paginated.
+        group.MapGet("/", async (
+            ILifeComputeService service, CancellationToken ct, int page = 1, int pageSize = 50) =>
+        {
+            var result = await service.ListInitialStatesAsync(page, pageSize, ct);
+            return Results.Ok(result.ToResponse());
+        });
+
         // 2. Get next state.
         group.MapPost("/{boardId:guid}/next", async (
             Guid boardId, ILifeComputeService service, CancellationToken ct) =>

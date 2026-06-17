@@ -136,6 +136,31 @@ public sealed class LifeComputeService : ILifeComputeService
                 .ConfigureAwait(false);
         }, ct);
 
+    public async Task<PagedResult<LifeState>> ListInitialStatesAsync(
+        int page, int pageSize, CancellationToken ct)
+    {
+        if (page < 1 || pageSize < 1)
+        {
+            throw LifeException.InvalidPagination(page, pageSize);
+        }
+
+        if (pageSize > _limits.MaxStatesPerRequest)
+        {
+            throw LifeException.StatesLimitExceeded(pageSize, _limits.MaxStatesPerRequest);
+        }
+
+        using (BeginCollectionScope("ListInitialStates"))
+        {
+            var sw = Stopwatch.StartNew();
+            var result = await _storage.GetInitialStatesAsync(page, pageSize, ct).ConfigureAwait(false);
+            _logger.LogInformation(
+                "{Operation} (page {Page}, pageSize {PageSize}) completed with status {Status} in {DurationMs}ms (returned: {Count}, total: {Total})",
+                "ListInitialStates", page, pageSize, "ok", sw.ElapsedMilliseconds,
+                result.Items.Count, result.TotalCount);
+            return result;
+        }
+    }
+
     public async Task ClearQuarantineAsync(BoardId boardId, CancellationToken ct)
     {
         using (BeginScope(boardId, "ClearQuarantine"))
@@ -265,6 +290,13 @@ public sealed class LifeComputeService : ILifeComputeService
         _logger.BeginScope(new Dictionary<string, object>
         {
             ["boardId"] = boardId.ToString(),
+            ["operation"] = operation,
+        });
+
+    /// <summary>Logging scope for collection-level operations that are not scoped to a single board.</summary>
+    private IDisposable? BeginCollectionScope(string operation) =>
+        _logger.BeginScope(new Dictionary<string, object>
+        {
             ["operation"] = operation,
         });
 

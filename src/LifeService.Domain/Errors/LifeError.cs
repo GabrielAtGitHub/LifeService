@@ -42,4 +42,8 @@ public sealed class LifeException : Exception
 
     public static LifeException InvalidRange(long from, long to) =>
         new(LifeErrorCode.InvalidRange, $"Invalid label range [{from}, {to}].");
+
+    public static LifeException InvalidPagination(int page, int pageSize) =>
+        new(LifeErrorCode.InvalidRange,
+            $"Invalid pagination (page {page}, pageSize {pageSize}); page and pageSize must be >= 1.");
 }

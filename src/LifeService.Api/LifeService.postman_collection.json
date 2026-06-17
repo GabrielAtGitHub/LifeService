@@ -43,6 +43,22 @@
       }
     },
     {
+      "name": "2b. List boards (paginated)",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test('200 OK', () => pm.response.to.have.status(200));",
+          "pm.test('has paging metadata', () => pm.expect(pm.response.json()).to.have.property('totalCount'));",
+          "console.log('2b. List boards ->', JSON.stringify(pm.response.json(), null, 2));"
+        ] } }
+      ],
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{host}}/api/life/boards?page=1&pageSize=20", "host": ["{{host}}"],
+          "path": ["api","life","boards"],
+          "query": [ { "key": "page", "value": "1" }, { "key": "pageSize", "value": "20" } ] }
+      }
+    },
+    {
       "name": "3. Advance one generation",
       "event": [
         { "listen": "test", "script": { "type": "text/javascript", "exec": [

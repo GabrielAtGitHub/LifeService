@@ -84,6 +84,30 @@ public sealed class InMemoryLifeStorageProvider : ILifeStorageProvider
         return Task.FromResult<IReadOnlyList<LifeState>>(states);
     }
 
+    public Task<PagedResult<LifeState>> GetInitialStatesAsync(int page, int pageSize, CancellationToken ct)
+    {
+        // The label-0 state of every board, ordered deterministically by board id.
+        var initialStates = _boards
+            .Where(kvp => kvp.Value.States.ContainsKey(LifeStateLabel.Initial.Value))
+            .OrderBy(kvp => kvp.Key.Value)
+            .Select(kvp => kvp.Value.States[LifeStateLabel.Initial.Value]);
+
+        var total = _boards.Count(kvp => kvp.Value.States.ContainsKey(LifeStateLabel.Initial.Value));
+
+        var items = initialStates
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+
+        return Task.FromResult(new PagedResult<LifeState>
+        {
+            Items = items,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = total,
+        });
+    }
+
     public Task PersistStateAsync(LifeState state, CancellationToken ct)
     {
         var record = _boards.GetOrAdd(state.BoardId, _ => new BoardRecord());
