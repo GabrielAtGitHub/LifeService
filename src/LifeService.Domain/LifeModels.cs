@@ -102,6 +102,19 @@ public sealed record PagedResult<T>
 }
 
 /// <summary>
+/// Result of computing a board to a steady state or the per-request limit: the classification
+/// <see cref="Summary"/> plus the trajectory of states computed along the way (the successors of the
+/// starting state, in label order). Callers persist <see cref="ComputedStates"/> so the summary's
+/// <see cref="SolutionSummary.LastComputedLabel"/> always refers to a stored state.
+/// </summary>
+public sealed record SteadyStateResult
+{
+    public required SolutionSummary Summary { get; init; }
+
+    public required IReadOnlyList<LifeState> ComputedStates { get; init; }
+}
+
+/// <summary>
 /// Records that a board has been quarantined after repeated failures.
 /// </summary>
 public sealed record QuarantineInfo

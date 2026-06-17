@@ -87,11 +87,20 @@ public sealed class LifeComputeService : ILifeComputeService
         RunGuardedAsync(boardId, "GetFinalState", async () =>
         {
             var current = await GetLatestStateAsync(boardId, ct).ConfigureAwait(false);
-            var summary = await _compute
+            var result = await _compute
                 .ComputeUntilSteadyOrLimitAsync(boardId, current, _limits.MaxStatesPerRequest, ct)
                 .ConfigureAwait(false);
-            await _storage.PersistSolutionSummaryAsync(summary, ct).ConfigureAwait(false);
-            return summary;
+
+            // Persist the computed trajectory before the summary so LastComputedLabel always refers
+            // to a stored state (otherwise a later GetLatestState would fail with BoardNotFound) and
+            // the full history is queryable via GetStatesInRange.
+            foreach (var state in result.ComputedStates)
+            {
+                await _storage.PersistStateAsync(state, ct).ConfigureAwait(false);
+            }
+
+            await _storage.PersistSolutionSummaryAsync(result.Summary, ct).ConfigureAwait(false);
+            return result.Summary;
         }, ct);
 
     public Task<IReadOnlyList<LifeState>> GetNextNStatesAsync(

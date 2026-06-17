@@ -111,6 +111,12 @@ LifeService.Tests.Integration
 - `LifeStateLabel? OscillationPeriodStart`
 - `int? OscillationPeriodLength`
 
+### `SteadyStateResult`
+- `SolutionSummary Summary`
+- `IReadOnlyList<LifeState> ComputedStates` — the trajectory computed while seeking a steady state
+  (successors of the starting state, in label order). The service persists these so the summary's
+  `LastComputedLabel` always refers to a stored state.
+
 ### `QuarantineInfo`
 - `BoardId BoardId`
 - `DateTimeOffset QuarantinedAt`
@@ -166,7 +172,9 @@ public interface ILifeComputeProvider
         int n,
         CancellationToken ct);
 
-    Task<SolutionSummary> ComputeUntilSteadyOrLimitAsync(
+    // Returns the steady-state summary plus the computed trajectory (states the caller persists,
+    // so LastComputedLabel always refers to a stored state).
+    Task<SteadyStateResult> ComputeUntilSteadyOrLimitAsync(
         BoardId boardId,
         LifeState initial,
         int maxStates,

@@ -42,7 +42,7 @@ public class LifeComputeServiceTests
         public Task<IReadOnlyList<LifeState>> ComputeNextNStatesAsync(
             LifeState current, int n, CancellationToken ct) => throw new InvalidOperationException("boom");
 
-        public Task<SolutionSummary> ComputeUntilSteadyOrLimitAsync(
+        public Task<SteadyStateResult> ComputeUntilSteadyOrLimitAsync(
             BoardId boardId, LifeState initial, int maxStates, CancellationToken ct) =>
             throw new InvalidOperationException("boom");
     }
@@ -59,6 +59,32 @@ public class LifeComputeServiceTests
 
         Assert.Equal(1, next.Label.Value);
         Assert.Equal(3, next.ActiveCells.Count);
+    }
+
+    [Fact]
+    public async Task GetFinal_PersistsTrajectory_SoSubsequentOperationsSucceed()
+    {
+        var service = CreateService();
+        var id = (await service.UploadInitialStateAsync(
+            [new(1, 0), new(1, 1), new(1, 2)], CancellationToken.None)).BoardId;
+
+        // Compute to steady state: this advances LastComputedLabel past the uploaded state.
+        var summary = await service.GetFinalStateAsync(id, CancellationToken.None);
+        Assert.True(summary.LastComputedLabel.Value > 0);
+
+        // Regression: previously /final advanced the summary without persisting the computed states,
+        // so GetLatestState (used by /next, /final, /next-sequence) then threw BoardNotFound.
+        var next = await service.GetNextStateAsync(id, CancellationToken.None);
+        Assert.Equal(summary.LastComputedLabel.Value + 1, next.Label.Value);
+
+        // The computed trajectory is queryable, and the state at LastComputedLabel exists.
+        var history = await service.GetStatesInRangeAsync(
+            id, 0, summary.LastComputedLabel.Value, CancellationToken.None);
+        Assert.Contains(history, s => s.Label.Value == summary.LastComputedLabel.Value);
+
+        // A second /final from the persisted steady state also succeeds.
+        var again = await service.GetFinalStateAsync(id, CancellationToken.None);
+        Assert.Equal(SolutionStatus.OscillationSteadyState, again.Status);
     }
 
     [Fact]

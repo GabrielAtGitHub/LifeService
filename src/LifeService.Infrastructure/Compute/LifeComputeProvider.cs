@@ -64,7 +64,7 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
         return results;
     }
 
-    public async Task<SolutionSummary> ComputeUntilSteadyOrLimitAsync(
+    public async Task<SteadyStateResult> ComputeUntilSteadyOrLimitAsync(
         BoardId boardId, LifeState initial, int maxStates, CancellationToken ct)
     {
         using var activity = LifeDiagnostics.StartOperation("ComputeUntilSteadyOrLimit", boardId);
@@ -73,31 +73,44 @@ public sealed class LifeComputeProvider : ILifeComputeProvider
         var current = initial;
         detector.Observe(current); // record the starting state at its own label
 
+        // Track the trajectory so the caller can persist it; LastComputedLabel must reference a
+        // state that was actually stored.
+        var computed = new List<LifeState>();
+
         for (var i = 0; i < maxStates; i++)
         {
             ct.ThrowIfCancellationRequested();
             current = await ComputeNextAsync(current, ct).ConfigureAwait(false);
+            computed.Add(current);
             var result = detector.Observe(current);
             if (result.IsSteady)
             {
                 activity?.SetTag("status", result.Status.ToString());
-                return new SolutionSummary
+                return new SteadyStateResult
                 {
-                    BoardId = boardId,
-                    Status = result.Status,
-                    LastComputedLabel = current.Label,
-                    OscillationPeriodStart = result.PeriodStart,
-                    OscillationPeriodLength = result.PeriodLength,
+                    Summary = new SolutionSummary
+                    {
+                        BoardId = boardId,
+                        Status = result.Status,
+                        LastComputedLabel = current.Label,
+                        OscillationPeriodStart = result.PeriodStart,
+                        OscillationPeriodLength = result.PeriodLength,
+                    },
+                    ComputedStates = computed,
                 };
             }
         }
 
         activity?.SetTag("status", nameof(SolutionStatus.Incomplete));
-        return new SolutionSummary
+        return new SteadyStateResult
         {
-            BoardId = boardId,
-            Status = SolutionStatus.Incomplete,
-            LastComputedLabel = current.Label,
+            Summary = new SolutionSummary
+            {
+                BoardId = boardId,
+                Status = SolutionStatus.Incomplete,
+                LastComputedLabel = current.Label,
+            },
+            ComputedStates = computed,
         };
     }
 

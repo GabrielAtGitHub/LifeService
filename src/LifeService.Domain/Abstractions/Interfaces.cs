@@ -53,7 +53,7 @@ public interface ILifeComputeProvider
         int n,
         CancellationToken ct);
 
-    Task<SolutionSummary> ComputeUntilSteadyOrLimitAsync(
+    Task<SteadyStateResult> ComputeUntilSteadyOrLimitAsync(
         BoardId boardId,
         LifeState initial,
         int maxStates,
