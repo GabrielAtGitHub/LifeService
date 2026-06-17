@@ -94,6 +94,10 @@ recurrence:
 - **period > 1** → `OscillationSteadyState` (period = `currentLabel − firstSeenLabel`),
 - limit reached without recurrence → `Incomplete`.
 
+It returns a `SteadyStateResult` carrying the summary **and** the computed trajectory; the service
+persists those states (so `LastComputedLabel` always refers to a stored state and the full history is
+queryable via `/states`).
+
 ---
 
 ## 4. Data Flow (Request Lifecycle)

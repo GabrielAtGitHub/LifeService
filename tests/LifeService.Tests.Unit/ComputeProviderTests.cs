@@ -108,11 +108,14 @@ public class ComputeProviderTests
         var block = new LifeState(id, LifeStateLabel.Initial,
             [new(0, 0), new(0, 1), new(1, 0), new(1, 1)]);
 
-        var summary = await CreateProvider()
+        var result = await CreateProvider()
             .ComputeUntilSteadyOrLimitAsync(id, block, 100, CancellationToken.None);
 
-        Assert.Equal(SolutionStatus.StableSteadyState, summary.Status);
-        Assert.Equal(1, summary.OscillationPeriodLength);
+        Assert.Equal(SolutionStatus.StableSteadyState, result.Summary.Status);
+        Assert.Equal(1, result.Summary.OscillationPeriodLength);
+        // The trajectory is returned, and its last state matches the reported LastComputedLabel.
+        Assert.NotEmpty(result.ComputedStates);
+        Assert.Equal(result.Summary.LastComputedLabel, result.ComputedStates[^1].Label);
     }
 
     [Fact]
@@ -122,11 +125,11 @@ public class ComputeProviderTests
         var blinker = new LifeState(id, LifeStateLabel.Initial,
             [new(1, 0), new(1, 1), new(1, 2)]);
 
-        var summary = await CreateProvider()
+        var result = await CreateProvider()
             .ComputeUntilSteadyOrLimitAsync(id, blinker, 100, CancellationToken.None);
 
-        Assert.Equal(SolutionStatus.OscillationSteadyState, summary.Status);
-        Assert.Equal(2, summary.OscillationPeriodLength);
+        Assert.Equal(SolutionStatus.OscillationSteadyState, result.Summary.Status);
+        Assert.Equal(2, result.Summary.OscillationPeriodLength);
     }
 
     [Fact]
@@ -135,9 +138,9 @@ public class ComputeProviderTests
         var id = BoardId.New();
         var empty = new LifeState(id, LifeStateLabel.Initial, []);
 
-        var summary = await CreateProvider()
+        var result = await CreateProvider()
             .ComputeUntilSteadyOrLimitAsync(id, empty, 10, CancellationToken.None);
 
-        Assert.Equal(SolutionStatus.StableSteadyState, summary.Status);
+        Assert.Equal(SolutionStatus.StableSteadyState, result.Summary.Status);
     }
 }

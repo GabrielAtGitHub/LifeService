@@ -81,6 +81,24 @@ public class LifeApiTests : IClassFixture<LifeApiFactory>
     }
 
     [Fact]
+    public async Task GetFinal_ThenNext_StillSucceeds()
+    {
+        var client = _factory.CreateClient();
+        var id = await UploadAsync(client, (40, 0), (40, 1), (40, 2));
+
+        // Compute to steady state, then keep stepping. Regression: /final used to advance the
+        // summary past the persisted states, so the next operation returned 404 BoardNotFound.
+        var final = await client.GetAsync($"/api/life/boards/{id}/final");
+        final.EnsureSuccessStatusCode();
+
+        var next = await client.PostAsync($"/api/life/boards/{id}/next", null);
+        Assert.Equal(HttpStatusCode.OK, next.StatusCode);
+
+        var again = await client.GetAsync($"/api/life/boards/{id}/final");
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+    }
+
+    [Fact]
     public async Task GetNext_OnUnknownBoard_Returns404()
     {
         var client = _factory.CreateClient();
