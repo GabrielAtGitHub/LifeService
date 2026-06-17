@@ -30,6 +30,13 @@ public interface ILifeComputeService
         long toLabel,
         CancellationToken ct);
 
+    /// <summary>
+    /// Lists the first state (label 0, the uploaded initial state) of every stored board, in a
+    /// deterministic order, one page at a time. Each item carries the usual board id, label and
+    /// active cells.
+    /// </summary>
+    Task<PagedResult<LifeState>> ListInitialStatesAsync(int page, int pageSize, CancellationToken ct);
+
     Task ClearQuarantineAsync(BoardId boardId, CancellationToken ct);
 }
 
@@ -76,6 +83,12 @@ public interface ILifeStorageProvider
         LifeStateLabel from,
         LifeStateLabel to,
         CancellationToken ct);
+
+    /// <summary>
+    /// Returns a page of the initial state (label 0) of every stored board, ordered deterministically
+    /// by board id, along with the total board count. Used to enumerate stored results.
+    /// </summary>
+    Task<PagedResult<LifeState>> GetInitialStatesAsync(int page, int pageSize, CancellationToken ct);
 
     Task PersistStateAsync(LifeState state, CancellationToken ct);
 

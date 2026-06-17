@@ -75,6 +75,31 @@ public sealed class SqliteStorageTests : IDisposable
         Assert.Equal(firstId, secondId);
     }
 
+    [Fact]
+    public async Task ListBoards_ReturnsPersistedFirstStates_Paginated()
+    {
+        var client = _factory.CreateClient();
+
+        await client.PostAsJsonAsync("/api/life/boards", new
+        {
+            cells = new[] { new { x = 1, y = 0 }, new { x = 1, y = 1 }, new { x = 1, y = 2 } },
+        });
+        await client.PostAsJsonAsync("/api/life/boards", new
+        {
+            cells = new[] { new { x = 7, y = 7 } },
+        });
+
+        // A separate request reads the label-0 states back from SQLite, paginated.
+        var response = await client.GetAsync("/api/life/boards?page=1&pageSize=10");
+        response.EnsureSuccessStatusCode();
+        var page = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(2, page.GetProperty("totalCount").GetInt64());
+        var items = page.GetProperty("items").EnumerateArray().ToList();
+        Assert.Equal(2, items.Count);
+        Assert.All(items, s => Assert.Equal(0, s.GetProperty("label").GetInt64()));
+    }
+
     public void Dispose()
     {
         _factory.Dispose();

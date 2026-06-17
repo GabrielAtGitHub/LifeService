@@ -11,6 +11,13 @@ public sealed record UploadBoardRequest(IReadOnlyList<CellDto> Cells);
 /// <summary>Response describing a single computed state.</summary>
 public sealed record LifeStateResponse(Guid BoardId, long Label, IReadOnlyList<CellDto> ActiveCells);
 
+/// <summary>A page of results plus the metadata needed to fetch further pages.</summary>
+public sealed record PagedResponse<T>(
+    IReadOnlyList<T> Items,
+    int Page,
+    int PageSize,
+    long TotalCount);
+
 /// <summary>Response describing the solution summary for a board.</summary>
 public sealed record SolutionSummaryResponse(
     Guid BoardId,
@@ -39,6 +46,12 @@ public static class ContractMappings
         new(state.BoardId.Value,
             state.Label.Value,
             state.ActiveCells.Select(c => new CellDto(c.X, c.Y)).ToList());
+
+    public static PagedResponse<LifeStateResponse> ToResponse(this PagedResult<LifeState> page) =>
+        new(page.Items.Select(ToResponse).ToList(),
+            page.Page,
+            page.PageSize,
+            page.TotalCount);
 
     public static SolutionSummaryResponse ToResponse(this SolutionSummary summary) =>
         new(summary.BoardId.Value,

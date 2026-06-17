@@ -132,6 +132,42 @@ public class LifeApiTests : IClassFixture<LifeApiFactory>
     }
 
     [Fact]
+    public async Task ListBoards_ReturnsFirstStateOfEachBoard_Paginated()
+    {
+        // Isolated host so the shared in-memory store from sibling tests doesn't skew the totals.
+        var factory = _factory.WithWebHostBuilder(_ => { });
+        var client = factory.CreateClient();
+
+        await UploadAsync(client, (1, 1));
+        await UploadAsync(client, (2, 2));
+        await UploadAsync(client, (3, 3));
+
+        var first = await client.GetAsync("/api/life/boards?page=1&pageSize=2");
+        first.EnsureSuccessStatusCode();
+        var page1 = await first.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(3, page1.GetProperty("totalCount").GetInt64());
+        Assert.Equal(1, page1.GetProperty("page").GetInt32());
+        Assert.Equal(2, page1.GetProperty("pageSize").GetInt32());
+        var items = page1.GetProperty("items").EnumerateArray().ToList();
+        Assert.Equal(2, items.Count);
+        Assert.All(items, s => Assert.Equal(0, s.GetProperty("label").GetInt64()));
+
+        var second = await client.GetAsync("/api/life/boards?page=2&pageSize=2");
+        second.EnsureSuccessStatusCode();
+        var page2 = await second.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Single(page2.GetProperty("items").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task ListBoards_InvalidPagination_Returns400()
+    {
+        var client = _factory.CreateClient();
+        var response = await client.GetAsync("/api/life/boards?page=0&pageSize=10");
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Quarantine_WhenNone_Returns204()
     {
         var client = _factory.CreateClient();

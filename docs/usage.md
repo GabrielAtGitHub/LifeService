@@ -107,6 +107,27 @@ BOARD=$(curl -s -X POST http://localhost:5062/api/life/boards \
   -d '{"cells":[{"x":1,"y":0},{"x":1,"y":1},{"x":1,"y":2}]}' | jq -r .boardId)
 ```
 
+### 1b. List stored boards (paginated)
+
+List the first state (label 0) of every stored board. `page` is 1-based (default 1) and `pageSize`
+defaults to 50 (capped at `MaxStatesPerRequest`):
+
+```bash
+curl -s "http://localhost:5062/api/life/boards?page=1&pageSize=20"
+```
+
+```jsonc
+// 200 OK — one record per board (its uploaded initial state), plus paging metadata
+{
+  "items": [
+    { "boardId": "3fa85f64-...", "label": 0, "activeCells": [ { "x": 1, "y": 0 }, { "x": 1, "y": 1 }, { "x": 1, "y": 2 } ] }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "totalCount": 1
+}
+```
+
 ### 2. Advance one generation
 
 ```bash

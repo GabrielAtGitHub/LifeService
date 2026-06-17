@@ -12,6 +12,7 @@ public interface ILifeStorageProvider
     Task<BoardCreationResult> CreateBoardAsync(IReadOnlyCollection<LifeCell> initialState, CancellationToken ct);
     Task<LifeState?> GetStateAsync(BoardId boardId, LifeStateLabel label, CancellationToken ct);
     Task<IReadOnlyList<LifeState>> GetStatesRangeAsync(BoardId boardId, LifeStateLabel from, LifeStateLabel to, CancellationToken ct);
+    Task<PagedResult<LifeState>> GetInitialStatesAsync(int page, int pageSize, CancellationToken ct);
     Task PersistStateAsync(LifeState state, CancellationToken ct);
     Task<SolutionSummary?> GetSolutionSummaryAsync(BoardId boardId, CancellationToken ct);
     Task PersistSolutionSummaryAsync(SolutionSummary summary, CancellationToken ct);
@@ -25,6 +26,12 @@ public interface ILifeStorageProvider
 Every write is an **upsert** keyed by its natural identity (`BoardId` + `LifeStateLabel` for states;
 `BoardId` for summaries and quarantine records). Re-persisting the same state or summary is a no-op
 in effect, satisfying the idempotency invariant.
+
+### Enumerating stored boards
+`GetInitialStatesAsync` returns a `PagedResult<LifeState>` of the **first** state (label 0) of every
+board, ordered by `BoardId` for stable pagination. The in-memory provider filters its board map for
+the label-0 entry; the EF provider queries `States` for `Label == 0` (`OrderBy(BoardId)`,
+`Skip`/`Take`, plus a `LongCount` for the total).
 
 ### Content-addressed board creation
 `CreateBoardAsync` is idempotent by content. It computes a `BoardFingerprint` over the initial cell

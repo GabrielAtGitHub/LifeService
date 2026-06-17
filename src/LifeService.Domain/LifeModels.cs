@@ -66,6 +66,25 @@ public sealed record SolutionSummary
 }
 
 /// <summary>
+/// A single page of results together with the pagination metadata needed to request further pages.
+/// </summary>
+/// <typeparam name="T">The item type contained in the page.</typeparam>
+public sealed record PagedResult<T>
+{
+    /// <summary>The items on this page (may be empty for pages beyond the end).</summary>
+    public required IReadOnlyList<T> Items { get; init; }
+
+    /// <summary>1-based page number that was returned.</summary>
+    public required int Page { get; init; }
+
+    /// <summary>Maximum number of items per page.</summary>
+    public required int PageSize { get; init; }
+
+    /// <summary>Total number of items across all pages.</summary>
+    public required long TotalCount { get; init; }
+}
+
+/// <summary>
 /// Records that a board has been quarantined after repeated failures.
 /// </summary>
 public sealed record QuarantineInfo

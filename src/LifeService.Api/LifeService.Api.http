@@ -11,6 +11,9 @@ Content-Type: application/json
 
 { "cells": [ { "x": 1, "y": 0 }, { "x": 1, "y": 1 }, { "x": 1, "y": 2 } ] }
 
+### List stored boards (first state of each, paginated)
+GET {{host}}/api/life/boards?page=1&pageSize=20
+
 ### Advance one generation
 POST {{host}}/api/life/boards/{{upload.response.body.$.boardId}}/next
 
