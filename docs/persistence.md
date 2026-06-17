@@ -12,7 +12,7 @@ public interface ILifeStorageProvider
     Task<BoardCreationResult> CreateBoardAsync(IReadOnlyCollection<LifeCell> initialState, CancellationToken ct);
     Task<LifeState?> GetStateAsync(BoardId boardId, LifeStateLabel label, CancellationToken ct);
     Task<IReadOnlyList<LifeState>> GetStatesRangeAsync(BoardId boardId, LifeStateLabel from, LifeStateLabel to, CancellationToken ct);
-    Task<PagedResult<LifeState>> GetInitialStatesAsync(int page, int pageSize, CancellationToken ct);
+    Task<PagedResult<StoredBoardState>> GetInitialStatesAsync(int page, int pageSize, CancellationToken ct);
     Task PersistStateAsync(LifeState state, CancellationToken ct);
     Task<SolutionSummary?> GetSolutionSummaryAsync(BoardId boardId, CancellationToken ct);
     Task PersistSolutionSummaryAsync(SolutionSummary summary, CancellationToken ct);
@@ -28,10 +28,14 @@ Every write is an **upsert** keyed by its natural identity (`BoardId` + `LifeSta
 in effect, satisfying the idempotency invariant.
 
 ### Enumerating stored boards
-`GetInitialStatesAsync` returns a `PagedResult<LifeState>` of the **first** state (label 0) of every
-board, ordered by `BoardId` for stable pagination. The in-memory provider filters its board map for
-the label-0 entry; the EF provider queries `States` for `Label == 0` (`OrderBy(BoardId)`,
-`Skip`/`Take`, plus a `LongCount` for the total).
+`GetInitialStatesAsync` returns a `PagedResult<StoredBoardState>` of the **first** state (label 0) of
+every board — plus each board's `CreatedAt` — in **creation order**. Each board carries a monotonic
+`Sequence` assigned once at creation, which is the ordering key (oldest first). The in-memory provider
+increments an `Interlocked` counter and orders its board map by `Sequence`; the EF provider joins
+`States` (`Label == 0`) with `Summaries` on `BoardId`, orders by `Summaries.Sequence` (indexed) and
+applies `Skip`/`Take`, with a `LongCount` of `Summaries` for the total. The EF `Sequence` is computed
+as `max(Sequence) + 1` at creation (safe under SQLite's single-writer model); production engines
+should map it to a native identity/sequence column.
 
 ### Content-addressed board creation
 `CreateBoardAsync` is idempotent by content. It computes a `BoardFingerprint` over the initial cell
@@ -53,7 +57,7 @@ erDiagram
     BOARD ||--o| QUARANTINE : may-have
     BOARD { guid BoardId }
     STATE { guid BoardId  long Label  blob ActiveCells }
-    SUMMARY { guid BoardId  int Status  long LastComputedLabel  long OscillationPeriodStart  int OscillationPeriodLength  string Fingerprint }
+    SUMMARY { guid BoardId  int Status  long LastComputedLabel  long OscillationPeriodStart  int OscillationPeriodLength  string Fingerprint  long Sequence  datetime CreatedAt }
     QUARANTINE { guid BoardId  datetime QuarantinedAt  string Reason  int RetryCount }
 ```
 
@@ -77,9 +81,10 @@ production relational engine. The schema is created at startup via `EnsureCreate
 { "Life": { "Storage": { "Provider": "Sqlite", "SqliteConnectionString": "Data Source=life.db" } } }
 ```
 
-EF tables: `States` (PK `BoardId`+`Label`), `Summaries` (PK `BoardId`, **unique** `Fingerprint`),
-`Quarantines` (PK `BoardId`). Because the schema is created with `EnsureCreatedAsync` (no
-migrations), delete an existing `life.db` to pick up schema changes such as the `Fingerprint` column.
+EF tables: `States` (PK `BoardId`+`Label`), `Summaries` (PK `BoardId`, **unique** `Fingerprint`,
+indexed `Sequence`, plus `CreatedAt`), `Quarantines` (PK `BoardId`). Because the schema is created
+with `EnsureCreatedAsync` (no migrations), delete an existing `life.db` to pick up schema changes such
+as the `Fingerprint`, `Sequence` and `CreatedAt` columns.
 
 ### Production
 Swap the registration in `AddLifeInfrastructure` for the chosen backend:

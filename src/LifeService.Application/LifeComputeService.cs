@@ -136,7 +136,7 @@ public sealed class LifeComputeService : ILifeComputeService
                 .ConfigureAwait(false);
         }, ct);
 
-    public async Task<PagedResult<LifeState>> ListInitialStatesAsync(
+    public async Task<PagedResult<StoredBoardState>> ListInitialStatesAsync(
         int page, int pageSize, CancellationToken ct)
     {
         if (page < 1 || pageSize < 1)

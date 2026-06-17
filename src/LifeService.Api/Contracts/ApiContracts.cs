@@ -11,6 +11,13 @@ public sealed record UploadBoardRequest(IReadOnlyList<CellDto> Cells);
 /// <summary>Response describing a single computed state.</summary>
 public sealed record LifeStateResponse(Guid BoardId, long Label, IReadOnlyList<CellDto> ActiveCells);
 
+/// <summary>Response describing a stored board: its first state plus its creation timestamp.</summary>
+public sealed record StoredBoardResponse(
+    Guid BoardId,
+    long Label,
+    IReadOnlyList<CellDto> ActiveCells,
+    DateTimeOffset CreatedAt);
+
 /// <summary>A page of results plus the metadata needed to fetch further pages.</summary>
 public sealed record PagedResponse<T>(
     IReadOnlyList<T> Items,
@@ -47,7 +54,13 @@ public static class ContractMappings
             state.Label.Value,
             state.ActiveCells.Select(c => new CellDto(c.X, c.Y)).ToList());
 
-    public static PagedResponse<LifeStateResponse> ToResponse(this PagedResult<LifeState> page) =>
+    public static StoredBoardResponse ToResponse(this StoredBoardState board) =>
+        new(board.BoardId.Value,
+            board.Label.Value,
+            board.ActiveCells.Select(c => new CellDto(c.X, c.Y)).ToList(),
+            board.CreatedAt);
+
+    public static PagedResponse<StoredBoardResponse> ToResponse(this PagedResult<StoredBoardState> page) =>
         new(page.Items.Select(ToResponse).ToList(),
             page.Page,
             page.PageSize,

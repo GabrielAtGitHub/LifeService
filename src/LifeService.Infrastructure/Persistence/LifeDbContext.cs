@@ -32,6 +32,8 @@ public sealed class LifeDbContext : DbContext
             // database level, even under concurrent uploads of the same initial state.
             e.Property(s => s.Fingerprint).IsRequired();
             e.HasIndex(s => s.Fingerprint).IsUnique();
+            // Monotonic creation order; indexed for paginated listing (oldest first).
+            e.HasIndex(s => s.Sequence);
         });
 
         modelBuilder.Entity<QuarantineEntity>(e =>
@@ -61,6 +63,12 @@ public sealed class SummaryEntity
 
     /// <summary>Content fingerprint of the board's initial state (unique; idempotent uploads).</summary>
     public string Fingerprint { get; set; } = string.Empty;
+
+    /// <summary>Monotonic creation order, assigned once at board creation (oldest = smallest).</summary>
+    public long Sequence { get; set; }
+
+    /// <summary>When the board was created (its initial state uploaded).</summary>
+    public DateTimeOffset CreatedAt { get; set; }
 }
 
 /// <summary>Quarantine / failure-tracking record for a board.</summary>

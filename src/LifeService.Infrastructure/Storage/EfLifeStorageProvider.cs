@@ -32,6 +32,11 @@ public sealed class EfLifeStorageProvider : ILifeStorageProvider
         }
 
         var id = BoardId.New();
+        // Monotonic creation order. SQLite serialises writes, so max+1 is safe for the dev provider;
+        // production engines should map Sequence to a native identity/sequence column.
+        var nextSequence =
+            (await _db.Summaries.MaxAsync(s => (long?)s.Sequence, ct).ConfigureAwait(false) ?? 0) + 1;
+
         _db.States.Add(new StateEntity
         {
             BoardId = id.Value,
@@ -44,6 +49,8 @@ public sealed class EfLifeStorageProvider : ILifeStorageProvider
             Status = (int)SolutionStatus.Incomplete,
             LastComputedLabel = LifeStateLabel.Initial.Value,
             Fingerprint = fingerprint,
+            Sequence = nextSequence,
+            CreatedAt = DateTimeOffset.UtcNow,
         });
 
         try
@@ -89,24 +96,35 @@ public sealed class EfLifeStorageProvider : ILifeStorageProvider
         return entities.Select(ToState).ToList();
     }
 
-    public async Task<PagedResult<LifeState>> GetInitialStatesAsync(int page, int pageSize, CancellationToken ct)
+    public async Task<PagedResult<StoredBoardState>> GetInitialStatesAsync(int page, int pageSize, CancellationToken ct)
     {
-        // One label-0 row exists per board; order by board id for stable pagination.
-        var query = _db.States.AsNoTracking()
-            .Where(s => s.Label == LifeStateLabel.Initial.Value)
-            .OrderBy(s => s.BoardId);
+        // Join each board's label-0 state with its summary; order by monotonic creation sequence.
+        var query =
+            from st in _db.States.AsNoTracking()
+            join su in _db.Summaries.AsNoTracking() on st.BoardId equals su.BoardId
+            where st.Label == LifeStateLabel.Initial.Value
+            orderby su.Sequence
+            select new { st.BoardId, st.Label, st.CellsJson, su.CreatedAt };
 
-        var total = await query.LongCountAsync(ct).ConfigureAwait(false);
+        var total = await _db.Summaries.AsNoTracking().LongCountAsync(ct).ConfigureAwait(false);
 
-        var entities = await query
+        var rows = await query
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync(ct)
             .ConfigureAwait(false);
 
-        return new PagedResult<LifeState>
+        var items = rows.Select(r => new StoredBoardState
         {
-            Items = entities.Select(ToState).ToList(),
+            BoardId = new BoardId(r.BoardId),
+            Label = new LifeStateLabel(r.Label),
+            ActiveCells = JsonSerializer.Deserialize<List<LifeCell>>(r.CellsJson) ?? [],
+            CreatedAt = r.CreatedAt,
+        }).ToList();
+
+        return new PagedResult<StoredBoardState>
+        {
+            Items = items,
             Page = page,
             PageSize = pageSize,
             TotalCount = total,
