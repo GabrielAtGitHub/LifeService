@@ -137,12 +137,12 @@ with no stack traces.
 | # | Method & route | Description | Success | Error codes |
 | --- | --- | --- | --- | --- |
 | 1 | `POST /api/life/boards` | Upload initial board (idempotent by content) | `201 Created` `{ boardId }`, or `200 OK` `{ boardId }` if an identical board already exists | `ActiveCellLimitExceeded` (422) |
-| 1b | `GET /api/life/boards?page=&pageSize=` | List the first state (label 0) of every stored board, in creation order, paginated | `200` `{ items, page, pageSize, totalCount }` (each item has `boardId, label, activeCells, createdAt`) | `InvalidRange` (400), `StatesLimitExceeded` (422) |
-| 2 | `POST /api/life/boards/{boardId}/next` | Advance one generation | `200` state | `BoardNotFound` (404), `BoardQuarantined` (409) |
-| 3 | `GET /api/life/boards/{boardId}/final` | Compute to steady state / limit | `200` summary | `BoardNotFound`, `BoardQuarantined` |
-| 4 | `POST /api/life/boards/{boardId}/next-sequence?n=` | Advance N generations | `200` states | `StatesLimitExceeded` (422) |
-| 5 | `GET /api/life/boards/{boardId}/states?from=&to=` | Persisted states in range | `200` states | `InvalidRange` (400) |
-| 6 | `GET` / `DELETE /api/life/boards/{boardId}/quarantine` | Inspect / clear quarantine | `200`/`204` | — |
+| 2 | `GET /api/life/boards?page=&pageSize=` | List the first state (label 0) of every stored board, in creation order, paginated | `200` `{ items, page, pageSize, totalCount }` (each item has `boardId, label, activeCells, createdAt`) | `InvalidRange` (400), `StatesLimitExceeded` (422) |
+| 3 | `POST /api/life/boards/{boardId}/next` | Advance one generation | `200` state | `BoardNotFound` (404), `BoardQuarantined` (409) |
+| 4 | `GET /api/life/boards/{boardId}/final` | Compute to steady state / limit | `200` summary | `BoardNotFound`, `BoardQuarantined` |
+| 5 | `POST /api/life/boards/{boardId}/next-sequence?n=` | Advance N generations | `200` states | `StatesLimitExceeded` (422) |
+| 6 | `GET /api/life/boards/{boardId}/states?from=&to=` | Persisted states in range | `200` states | `InvalidRange` (400) |
+| 7 | `GET` / `DELETE /api/life/boards/{boardId}/quarantine` | Inspect / clear quarantine | `200`/`204` | — |
 
 `GET /health` exposes a liveness probe.
 
@@ -165,9 +165,15 @@ current state set.
 The persistence boundary is `ILifeStorageProvider` (boards, states, solution summaries, quarantine
 records). All writes are idempotent upserts. Details in [`docs/persistence.md`](docs/persistence.md).
 
-- **Development:** `InMemoryLifeStorageProvider` (default, thread-safe) or file-based SQLite.
+The provider is chosen at startup from `Life:Storage:Provider` (`"InMemory"` | `"Sqlite"`):
+
+- **Local (default run):** `InMemoryLifeStorageProvider` (thread-safe singleton) — no external
+  dependencies; state is lost on restart.
+- **Development:** file-based SQLite (`appsettings.Development.json`), durable across restarts.
+- **Test:** in-memory, pinned by the integration test host (`WebApplicationFactory`) for hermetic runs.
 - **Production:** relational (SQL Server / PostgreSQL) or NoSQL (Cosmos DB / DynamoDB), with optional
-  Redis for quarantine and solution-summary caching.
+  Redis for quarantine and solution-summary caching — see
+  [`SYSTEM_SPECIFICATION.md`](SYSTEM_SPECIFICATION.md) §6.4.
 
 ---
 
@@ -203,17 +209,28 @@ until cleared; any other unexpected error → `InternalError` (500) with no stac
 
 ## 9. Configuration
 
-Bound from `appsettings.json` under `Life` (see [`SYSTEM_SPECIFICATION.md`](SYSTEM_SPECIFICATION.md) §6).
+Bound from `appsettings.json` under `Life`, layered with `appsettings.{Environment}.json` and
+environment variables (`Life__Storage__Provider=Sqlite`). Per-environment configuration and a full
+production example are in [`SYSTEM_SPECIFICATION.md`](SYSTEM_SPECIFICATION.md) §6.3–§6.4.
 
 ```json
 {
   "Life": {
     "Limits":  { "MaxActiveCells": 10000, "MaxStatesPerRequest": 1000, "MaxRetriesPerBoard": 3 },
     "Compute": { "WorkerMinCellsPerTask": 128, "ThreadPoolFactor": 2.0 },
-    "Storage": { "UseRedisQuarantine": true, "UseRedisSolutionCache": false }
+    "Storage": {
+      "Provider": "InMemory",
+      "SqliteConnectionString": "Data Source=life.db",
+      "UseRedisQuarantine": true,
+      "UseRedisSolutionCache": false
+    }
   }
 }
 ```
+
+`Life:Storage:Provider` selects the store (`"InMemory"` default | `"Sqlite"`);
+`SqliteConnectionString` applies only to the SQLite provider. Production overrides these with a
+durable datastore and Redis (§6.4).
 
 ---
 
@@ -227,8 +244,10 @@ dotnet run --project src/LifeService.Api   # serve the API (OpenAPI at /openapi 
 ```
 
 For local configuration, running, and end-to-end client request/response examples, see
-[`docs/usage.md`](docs/usage.md). A ready-to-run request collection lives in
-[`src/LifeService.Api/LifeService.Api.http`](src/LifeService.Api/LifeService.Api.http).
+[`docs/usage.md`](docs/usage.md). Ready-to-run request collections live in
+[`src/LifeService.Api/LifeService.Api.http`](src/LifeService.Api/LifeService.Api.http) and, for
+Postman / Newman, [`src/LifeService.Api/LifeService.postman_collection.json`](src/LifeService.Api/LifeService.postman_collection.json)
+(run order and Newman usage documented in [`SYSTEM_SPECIFICATION.md`](SYSTEM_SPECIFICATION.md) §11).
 
 ### Project layout
 
