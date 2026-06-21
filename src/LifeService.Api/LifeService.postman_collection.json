@@ -26,7 +26,7 @@
       "name": "2. Upload board (blinker)",
       "event": [
         { "listen": "test", "script": { "type": "text/javascript", "exec": [
-          "pm.test('201 or 200', () => pm.response.to.be.oneOf([200, 201]));",
+          "pm.test('201 or 200', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
           "pm.collectionVariables.set('boardId', pm.response.json().boardId);",
           "console.log('2. Upload board ->', JSON.stringify(pm.response.json(), null, 2));"
         ] } }
